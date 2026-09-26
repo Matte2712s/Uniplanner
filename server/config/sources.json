@@ -1,0 +1,56 @@
+[
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613b9237d969e100173d4110",
+    "program": "Informatica",
+    "group": "Primo anno",
+    "title": "Canale A",
+    "titleEn": "Channel A"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613b92a1d969e100173d4111",
+    "program": "Informatica",
+    "group": "Primo anno",
+    "title": "Canale B",
+    "titleEn": "Channel B"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613b9315da7aec0018faeed7",
+    "program": "Informatica",
+    "group": "Primo anno",
+    "title": "Canale C",
+    "titleEn": "Channel C"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613b940fda7aec0018faeede",
+    "program": "Informatica",
+    "group": "Secondo anno",
+    "title": "Canale A",
+    "titleEn": "Channel A"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613b951ac10c8a0017da45cf",
+    "program": "Informatica",
+    "group": "Secondo anno",
+    "title": "Canale B",
+    "titleEn": "Channel B"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "612617b82db4bb0017172839",
+    "program": "Informatica",
+    "group": "Terzo anno",
+    "title": "Tutti gli insegnamenti",
+    "titleEn": "All courses"
+  },
+  {
+    "host": "unito.prod.up.cineca.it",
+    "linkCalendarioId": "613bd49941164e0018f0f1d7",
+    "program": "Informatica",
+    "group": "Magistrale"
+  }
+]

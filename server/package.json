@@ -1,0 +1,25 @@
+{
+  "name": "@planner/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/index.ts",
+    "start": "tsx --env-file-if-exists=../.env src/index.ts",
+    "probe": "tsx scripts/probe.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/rate-limit": "^10.0.0",
+    "@fastify/static": "^10.1.5",
+    "@planner/shared": "*",
+    "fastify": "^5.0.0",
+    "ipaddr.js": "^2.2.0",
+    "tsx": "^4.19.0",
+    "undici": "^7.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "unito-planner",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "test": "vitest run",
+    "typecheck": "tsc -p shared && tsc -p server && tsc -p web",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

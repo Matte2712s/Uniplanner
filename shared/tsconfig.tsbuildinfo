@@ -1,0 +1,1 @@
+{"root":["./src/foldertree.ts","./src/index.ts","./src/schemas.ts","./src/sourceurl.ts","./src/textsanitize.ts","./test/foldertree.test.ts","./test/textsanitize.test.ts"],"version":"5.9.3"}
