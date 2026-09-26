@@ -32,6 +32,7 @@ export function TopBar({
       <button className="icon-btn" onClick={onToggleSidebar} aria-label={t('nav.openMenu')}>
         <IconMenu />
       </button>
+      <span className="app-brand">{t('app.title')}</span>
       <button className="icon-btn" onClick={onPrev} aria-label="prev">
         <IconChevronLeft />
       </button>

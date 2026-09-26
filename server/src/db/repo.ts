@@ -1,5 +1,5 @@
 import type { ViewSettings } from '@planner/shared';
-import { defaultViewSettings } from '@planner/shared';
+import { collectSubtreeIds, defaultViewSettings } from '@planner/shared';
 import { tx, type Db } from './index.ts';
 
 export interface UserRow {
@@ -103,6 +103,23 @@ export function insertSource(
   return findSource(db, row.host, row.link_calendario_id)!;
 }
 
+/** Encodes a folder path (root to leaf) for storage in sources.group_path; [] becomes null. */
+export function encodeGroupPath(path: string[]): string | null {
+  return path.length > 0 ? JSON.stringify(path) : null;
+}
+
+/** Decodes sources.group_path back into a folder path. A plain non-JSON string (pre-nesting format) is treated as a single segment. */
+export function parseGroupPath(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((s): s is string => typeof s === 'string');
+  } catch {
+    // legacy plain-string value
+  }
+  return [raw];
+}
+
 /**
  * Inserts a default (config-seeded) source, or refreshes its title/group/program
  * if it already exists. Never touches a row that a user turned into a custom
@@ -172,11 +189,12 @@ export function listPrograms(db: Db): ProgramSources[] {
 
 /**
  * Links every not-yet-added source of a degree program to the user, and
- * places the newly-linked ones into a "Corso di <program>" folder (one
- * subfolder per group_path) - reusing an existing same-named folder/subfolder
- * rather than creating a duplicate, so re-adding after a partial removal (or
- * after this program-based model replaced the old auto-seed) reattaches
- * instead of duplicating. Never touches a source the user already has access to.
+ * places the newly-linked ones into a "Corso di <program>" folder, walking
+ * each source's group_path into nested subfolders as deep as it goes -
+ * reusing an existing same-named folder/subfolder at each level rather than
+ * creating a duplicate, so re-adding after a partial removal (or after this
+ * program-based model replaced the old auto-seed) reattaches instead of
+ * duplicating. Never touches a source the user already has access to.
  */
 export function addProgramForUser(db: Db, userId: number, program: string): { added: number } {
   const sources = defaultSources(db).filter((s) => s.program === program);
@@ -190,21 +208,24 @@ export function addProgramForUser(db: Db, userId: number, program: string): { ad
   let root = existingFolders.find((f) => f.parent_id == null && f.name === rootName);
   if (!root) root = createUserFolder(db, userId, rootName);
 
-  const subfoldersByGroup = new Map<string, FolderRow>();
-  for (const f of existingFolders) {
-    if (f.parent_id === root.id) subfoldersByGroup.set(f.name, f);
-  }
-  for (const source of newSources) {
-    let targetFolderId = root.id;
-    if (source.group_path) {
-      let sub = subfoldersByGroup.get(source.group_path);
-      if (!sub) {
-        sub = createUserFolder(db, userId, source.group_path, root.id);
-        subfoldersByGroup.set(source.group_path, sub);
-      }
-      targetFolderId = sub.id;
+  const folderByParentAndName = new Map<string, FolderRow>();
+  for (const f of existingFolders) folderByParentAndName.set(`${f.parent_id}:${f.name}`, f);
+  folderByParentAndName.set(`null:${rootName}`, root);
+
+  function resolveSubfolder(parent: FolderRow, name: string): FolderRow {
+    const key = `${parent.id}:${name}`;
+    let folder = folderByParentAndName.get(key);
+    if (!folder) {
+      folder = createUserFolder(db, userId, name, parent.id);
+      folderByParentAndName.set(key, folder);
     }
-    setSourcePlacement(db, userId, source.id, targetFolderId);
+    return folder;
+  }
+
+  for (const source of newSources) {
+    let target = root;
+    for (const segment of parseGroupPath(source.group_path)) target = resolveSubfolder(target, segment);
+    setSourcePlacement(db, userId, source.id, target.id);
   }
   return { added: newSources.length };
 }
@@ -223,11 +244,25 @@ export function linkUserSource(db: Db, userId: number, sourceId: number): void {
   db.prepare('INSERT OR IGNORE INTO user_sources (user_id, source_id) VALUES (?, ?)').run(userId, sourceId);
 }
 
+/** Drops the user's link/placement to a source. Not wrapped in its own tx so callers can batch several under one. */
+function unlinkUserSourceCore(db: Db, userId: number, sourceId: number): void {
+  db.prepare('DELETE FROM user_sources WHERE user_id = ? AND source_id = ?').run(userId, sourceId);
+  db.prepare('DELETE FROM user_source_placements WHERE user_id = ? AND source_id = ?').run(userId, sourceId);
+  pruneSourceFromViews(db, userId, sourceId);
+}
+
 export function unlinkUserSource(db: Db, userId: number, sourceId: number): void {
-  tx(db, () => {
-    db.prepare('DELETE FROM user_sources WHERE user_id = ? AND source_id = ?').run(userId, sourceId);
-    db.prepare('DELETE FROM user_source_placements WHERE user_id = ? AND source_id = ?').run(userId, sourceId);
-  });
+  tx(db, () => unlinkUserSourceCore(db, userId, sourceId));
+}
+
+/** Removes a source's course selections from every one of the user's views, so a removed source's choices don't linger or resurface if the source is re-added later. */
+function pruneSourceFromViews(db: Db, userId: number, sourceId: number): void {
+  for (const view of listViews(db, userId)) {
+    if (!view.settings.sources.some((s) => s.sourceId === sourceId)) continue;
+    updateView(db, userId, view.id, {
+      settings: { ...view.settings, sources: view.settings.sources.filter((s) => s.sourceId !== sourceId) },
+    });
+  }
 }
 
 export function userCanAccessSource(db: Db, userId: number, sourceId: number): boolean {
@@ -305,10 +340,22 @@ export function moveUserFolder(db: Db, userId: number, folderId: number, parentI
   return getUserFolder(db, userId, folderId);
 }
 
+/**
+ * Deletes a folder and its whole subtree, along with every source placed
+ * anywhere in it - a folder's contents are meant to go together, so this
+ * removes those sources from the user's list (like deleting them one by
+ * one) rather than merely un-placing them back to the root.
+ */
 export function deleteUserFolder(db: Db, userId: number, folderId: number): void {
-  // Cascades to the whole subtree (ON DELETE CASCADE on parent_id), and
-  // un-places every source anywhere in it (ON DELETE SET NULL).
-  db.prepare('DELETE FROM user_folders WHERE id = ? AND user_id = ?').run(folderId, userId);
+  const nodes = listUserFolders(db, userId).map((f) => ({ id: f.id, name: f.name, position: f.position, parentId: f.parent_id }));
+  const affected = new Set([folderId, ...collectSubtreeIds(nodes, folderId)]);
+  const placements = listUserPlacements(db, userId);
+  const sourceIds = [...placements.entries()].filter(([, fid]) => fid != null && affected.has(fid)).map(([sid]) => sid);
+  tx(db, () => {
+    for (const sourceId of sourceIds) unlinkUserSourceCore(db, userId, sourceId);
+    // Cascades to the whole subtree (ON DELETE CASCADE on parent_id).
+    db.prepare('DELETE FROM user_folders WHERE id = ? AND user_id = ?').run(folderId, userId);
+  });
 }
 
 /** sourceId -> folderId (null = not in any folder) */
@@ -324,6 +371,21 @@ export function setSourcePlacement(db: Db, userId: number, sourceId: number, fol
     `INSERT INTO user_source_placements (user_id, source_id, folder_id) VALUES (?, ?, ?)
      ON CONFLICT(user_id, source_id) DO UPDATE SET folder_id = excluded.folder_id`,
   ).run(userId, sourceId, folderId);
+}
+
+/** sourceId -> per-user rename override, for sources that have one. */
+export function listUserSourceNames(db: Db, userId: number): Map<number, string> {
+  const rows = db
+    .prepare('SELECT source_id, custom_name FROM user_source_placements WHERE user_id = ? AND custom_name IS NOT NULL')
+    .all(userId) as unknown as { source_id: number; custom_name: string }[];
+  return new Map(rows.map((row) => [row.source_id, row.custom_name]));
+}
+
+export function renameUserSource(db: Db, userId: number, sourceId: number, name: string): void {
+  db.prepare(
+    `INSERT INTO user_source_placements (user_id, source_id, folder_id, custom_name) VALUES (?, ?, NULL, ?)
+     ON CONFLICT(user_id, source_id) DO UPDATE SET custom_name = excluded.custom_name`,
+  ).run(userId, sourceId, name);
 }
 
 function parseView(row: ViewRow): { id: number; name: string; position: number; settings: ViewSettings; updatedAt: string } {

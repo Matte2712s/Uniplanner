@@ -1,4 +1,4 @@
-your-hostname.ddns.net {
+{$BASE_URL} {
 	reverse_proxy app:3000
 	encode gzip
 }

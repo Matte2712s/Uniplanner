@@ -5,6 +5,7 @@ import {
   MAX_COURSES_RANGE_DAYS,
   MAX_CUSTOM_SOURCES_PER_USER,
   sourcePlacementSchema,
+  sourceRenameSchema,
 } from '@planner/shared';
 import type { Db } from '../db/index.ts';
 import {
@@ -16,6 +17,9 @@ import {
   listPrograms,
   listUserFolders,
   listUserPlacements,
+  listUserSourceNames,
+  parseGroupPath,
+  renameUserSource,
   setSourcePlacement,
   unlinkUserSource,
   userCanAccessSource,
@@ -29,7 +33,7 @@ import { validateSourceUrl, persistValidatedSource } from '../sources/validate.t
 import { coursesFromEvents } from '../cineca/normalize.ts';
 import { getEventsForSource, SourceUnavailableError } from '../cineca/service.ts';
 
-function toDto(row: SourceRow, folderId: number | null): SourceDto {
+function toDto(row: SourceRow, folderId: number | null, displayName: string | null = null): SourceDto {
   return {
     id: row.id,
     kind: row.kind,
@@ -38,8 +42,9 @@ function toDto(row: SourceRow, folderId: number | null): SourceDto {
     title: row.title,
     titleEn: row.title_en,
     url: canonicalCalendarUrl(row.host, row.link_calendario_id),
-    group: row.group_path,
+    groupPath: parseGroupPath(row.group_path),
     folderId,
+    displayName,
   };
 }
 
@@ -60,8 +65,13 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
   app.get('/api/sources', async (req, reply) => {
     const user = currentUser(db, req, reply);
     const placements = user ? listUserPlacements(db, user.id) : new Map();
-    const defaults = user ? linkedDefaultSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null)) : [];
-    const custom = user ? userCustomSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null)) : [];
+    const names = user ? listUserSourceNames(db, user.id) : new Map();
+    const defaults = user
+      ? linkedDefaultSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null, names.get(s.id) ?? null))
+      : [];
+    const custom = user
+      ? userCustomSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null, names.get(s.id) ?? null))
+      : [];
     const folders = user ? listUserFolders(db, user.id).map(toFolderDto) : [];
     const linkedDefaultIds = new Set(defaults.map((s) => s.id));
     const programs: ProgramDto[] = listPrograms(db).map((p) => toProgramDto(p, linkedDefaultIds));
@@ -124,6 +134,19 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
       return reply.code(400).send({ error: 'invalid_folder' });
     }
     setSourcePlacement(db, user.id, id, parsed.data.folderId);
+    return { ok: true };
+  });
+
+  // PUT /api/sources/:id/name
+  app.put('/api/sources/:id/name', async (req, reply) => {
+    const user = currentUser(db, req, reply);
+    if (!user) return reply.code(401).send({ error: 'unauthenticated' });
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'invalid_id' });
+    if (!userCanAccessSource(db, user.id, id)) return reply.code(404).send({ error: 'not_found' });
+    const parsed = sourceRenameSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', issues: parsed.error.issues });
+    renameUserSource(db, user.id, id, parsed.data.name);
     return { ok: true };
   });
 

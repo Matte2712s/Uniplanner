@@ -9,7 +9,8 @@ import { IconFolder, IconGripVertical, IconPencil, IconPlus, IconTrash } from '.
 export interface FolderTreeCallbacks {
   settings: ViewSettings;
   onChange: (settings: ViewSettings) => void;
-  onRemoveSource: (sourceId: number) => void;
+  onRemoveSource: (source: SourceDto) => void;
+  onRenameSource: (source: SourceDto) => void;
   onRename: (folderId: number, currentName: string) => void;
   onNewSubfolder: (parentId: number) => void;
   onDeleteRequest: (folder: FolderDto) => void;
@@ -69,7 +70,8 @@ function FolderNodeItem({
               source={s}
               settings={callbacks.settings}
               onChange={callbacks.onChange}
-              onRemove={() => callbacks.onRemoveSource(s.id)}
+              onRemove={() => callbacks.onRemoveSource(s)}
+              onRename={() => callbacks.onRenameSource(s)}
             />
           ))}
           {children.map((child) => (

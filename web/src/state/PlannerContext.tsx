@@ -21,6 +21,7 @@ interface PlannerState {
   refetchSources(): void;
   addCustomSource(source: SourceDto): void;
   removeSource(id: number): Promise<void>;
+  renameSource(id: number, name: string): Promise<void>;
   setSourcePlacement(sourceId: number, folderId: number | null): Promise<void>;
 
   programs: ProgramDto[];
@@ -139,6 +140,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   });
   const removeSourceMutation = useMutation({
     mutationFn: (id: number) => api.removeSource(id),
+    // Removing a source also prunes its course selections from every view server-side.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['views'] });
+    },
+  });
+  const renameSourceMutation = useMutation({
+    mutationFn: (input: { id: number; name: string }) => api.renameSource(input.id, input.name),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
   });
   const setPlacementMutation = useMutation({
@@ -163,7 +172,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   });
   const deleteFolderMutation = useMutation({
     mutationFn: (id: number) => api.deleteFolder(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
+    // Deleting a folder also deletes the sources placed in it, which prunes their course selections from every view server-side.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['views'] });
+    },
   });
   const logoutMutation = useMutation({
     mutationFn: api.logout,
@@ -191,7 +204,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         : guestStore.resolveDefaults((sourcesQuery.data?.programs ?? []).flatMap((p) => p.sources)),
       custom: authed
         ? (sourcesQuery.data?.custom ?? [])
-        : guest.customSources.map((s) => ({ ...s, folderId: guest.placements[s.id] ?? null })),
+        : guest.customSources.map((s) => ({
+            ...s,
+            folderId: guest.placements[s.id] ?? null,
+            displayName: guest.customNames[s.id] ?? null,
+          })),
     },
     sourcesLoading: sourcesQuery.isLoading,
     refetchSources: () => qc.invalidateQueries({ queryKey: ['sources'] }),
@@ -214,6 +231,18 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         refreshGuest();
       }
     },
+    renameSource: async (id, name) => {
+      if (authed) {
+        try {
+          await renameSourceMutation.mutateAsync({ id, name });
+        } catch {
+          window.alert(t('error.generic'));
+        }
+      } else {
+        guestStore.renameSource(id, name);
+        refreshGuest();
+      }
+    },
     setSourcePlacement: async (sourceId, folderId) => {
       if (authed) {
         await setPlacementMutation.mutateAsync({ id: sourceId, folderId });
@@ -229,7 +258,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         await addProgramMutation.mutateAsync(program);
       } else {
         const entry = (sourcesQuery.data?.programs ?? []).find((p) => p.program === program);
-        if (entry) guestStore.addProgram(program, entry.sources.map((s) => ({ id: s.id, group: s.group })));
+        if (entry) guestStore.addProgram(program, entry.sources.map((s) => ({ id: s.id, groupPath: s.groupPath })));
         refreshGuest();
       }
     },

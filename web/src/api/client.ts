@@ -56,6 +56,8 @@ export const api = {
   removeSource: (id: number) => call<{ ok: true }>(`/api/sources/${id}`, { method: 'DELETE' }),
   setSourcePlacement: (id: number, folderId: number | null) =>
     call<{ ok: true }>(`/api/sources/${id}/placement`, { method: 'PUT', body: JSON.stringify({ folderId }) }),
+  renameSource: (id: number, name: string) =>
+    call<{ ok: true }>(`/api/sources/${id}/name`, { method: 'PUT', body: JSON.stringify({ name }) }),
   sourceCourses: (id: number, from: string, to: string) =>
     call<{ courses: CourseDto[] }>(`/api/sources/${id}/courses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
 

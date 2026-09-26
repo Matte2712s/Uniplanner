@@ -5,6 +5,7 @@ export const MAX_VIEWS_PER_USER = 30;
 export const MAX_CUSTOM_SOURCES_PER_USER = 10;
 export const MAX_FOLDERS_PER_USER = 20;
 export const MAX_FOLDER_NAME_LENGTH = 60;
+export const MAX_SOURCE_NAME_LENGTH = 120;
 export const MAX_RANGE_DAYS = 45;
 // Course discovery needs a much wider window (a full academic year) than
 // any single calendar view render, but it must still be bounded.
@@ -55,6 +56,15 @@ export const sourcePlacementSchema = z.object({
 
 export type SourcePlacement = z.infer<typeof sourcePlacementSchema>;
 
+export const sourceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_SOURCE_NAME_LENGTH)
+  .refine((s) => !hasControlOrInvisibleChars(s), 'invalid_chars');
+
+export const sourceRenameSchema = z.object({ name: sourceNameSchema });
+
 export const viewInputSchema = z.object({
   name: viewNameSchema,
   settings: viewSettingsSchema,
@@ -99,10 +109,12 @@ export interface SourceDto {
   title: string;
   titleEn: string | null;
   url: string;
-  // Config-seeded folder label (default sources only)
-  group: string | null;
+  // Config-seeded folder path, root to leaf (default sources only); empty when ungrouped
+  groupPath: string[];
   // Which of the user's own folders this sits in
   folderId: number | null;
+  // Per-user rename override (falls back to title/titleEn when null)
+  displayName: string | null;
 }
 
 export interface FolderDto {

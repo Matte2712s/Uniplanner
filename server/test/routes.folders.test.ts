@@ -81,15 +81,15 @@ describe('folder + placement routes', () => {
     expect(body.folders).toHaveLength(1);
     expect(body.defaults.find((s) => s.id === d1.id)).toMatchObject({ folderId: folder.id });
 
-    // Deleting the folder falls the source back to unfoldered rather than losing it.
+    // Deleting the folder deletes (unlinks) the source it contained.
     const deleteRes = await app.inject({ method: 'DELETE', url: `/api/folders/${folder.id}`, headers: { cookie: cookieHeader } });
     expect(deleteRes.statusCode).toBe(200);
     const afterDelete = await app.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
     const afterBody = afterDelete.json() as { defaults: { id: number; folderId: number | null }[] };
-    expect(afterBody.defaults.find((s) => s.id === d1.id)?.folderId).toBeNull();
+    expect(afterBody.defaults.find((s) => s.id === d1.id)).toBeUndefined();
   });
 
-  it('nests folders, cascades a delete to the whole subtree, and un-places sources in it', async () => {
+  it('nests folders, cascades a delete to the whole subtree, and deletes sources placed in it', async () => {
     const db = openDb(':memory:');
     app = await buildApp(db);
     const user = upsertUser(db, 'a', 'a@example.com', 'A');
@@ -110,7 +110,7 @@ describe('folder + placement routes', () => {
     const sourcesRes = await app.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
     const body = sourcesRes.json() as { defaults: { id: number; folderId: number | null }[]; folders: unknown[] };
     expect(body.folders).toHaveLength(0);
-    expect(body.defaults.find((s) => s.id === source.id)?.folderId).toBeNull();
+    expect(body.defaults.find((s) => s.id === source.id)).toBeUndefined();
   });
 
   it('rejects reparenting a folder under its own descendant, and under an unowned folder', async () => {
@@ -158,6 +158,25 @@ describe('folder + placement routes', () => {
 
     const renameRes = await app.inject(jsonReq('PUT', `/api/folders/${folderB.id}`, cookieA, { name: 'Hijacked' }));
     expect(renameRes.statusCode).toBe(404);
+  });
+
+  it('lets a user rename a source they can access', async () => {
+    const db = openDb(':memory:');
+    app = await buildApp(db);
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+
+    const source = linkedDefaultSource(db, user.id, '612617b82db4bb0017172839', 'Canale A');
+
+    const renameRes = await app.inject(jsonReq('PUT', `/api/sources/${source.id}/name`, cookieHeader, { name: 'My channel' }));
+    expect(renameRes.statusCode).toBe(200);
+
+    const sourcesRes = await app.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
+    const body = sourcesRes.json() as { defaults: { id: number; displayName: string | null }[] };
+    expect(body.defaults.find((s) => s.id === source.id)?.displayName).toBe('My channel');
+
+    const emptyName = await app.inject(jsonReq('PUT', `/api/sources/${source.id}/name`, cookieHeader, { name: '   ' }));
+    expect(emptyName.statusCode).toBe(400);
   });
 
   it("rejects placement changes on a source the requester doesn't have access to", async () => {

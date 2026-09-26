@@ -26,6 +26,7 @@ export function AddSourceDialog({ onClose, onAdded }: { onClose: () => void; onA
     setAddingProgram(program);
     try {
       await planner.addProgram(program);
+      onClose();
     } finally {
       setAddingProgram(null);
     }

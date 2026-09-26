@@ -23,6 +23,8 @@ interface GuestState {
   placements: Record<number, number | null>;
   // ids of default sources this guest has added (via a program, individually)
   addedDefaultIds: number[];
+  // sourceId -> per-user rename override
+  customNames: Record<number, string>;
 }
 
 function read(): GuestState {
@@ -38,6 +40,7 @@ function read(): GuestState {
       nextFolderId: parsed.nextFolderId ?? 1,
       placements: parsed.placements ?? {},
       addedDefaultIds: parsed.addedDefaultIds ?? [],
+      customNames: parsed.customNames ?? {},
     };
   } catch {
     return seed();
@@ -62,6 +65,7 @@ function seed(): GuestState {
     nextFolderId: 1,
     placements: {},
     addedDefaultIds: [],
+    customNames: {},
   };
 }
 
@@ -104,6 +108,15 @@ export function clearGuestData(): void {
   } catch {
     // ignore
   }
+}
+
+/** Drops a source's course selections from every view that referenced it. */
+function pruneSourceFromViews(views: View[], sourceId: number): View[] {
+  return views.map((v) =>
+    v.settings.sources.some((s) => s.sourceId === sourceId)
+      ? { ...v, settings: { ...v.settings, sources: v.settings.sources.filter((s) => s.sourceId !== sourceId) } }
+      : v,
+  );
 }
 
 export const guestStore = {
@@ -167,17 +180,32 @@ export const guestStore = {
     write({ ...state, customSources: [...state.customSources, source] });
   },
 
-  /** Removes a source of either kind: drops it from customSources/addedDefaultIds and clears its placement. */
+  /**
+   * Removes a source of either kind: drops it from customSources/addedDefaultIds,
+   * clears its placement and rename override, and forgets any course
+   * selections it had in every view (so they don't linger or resurface if
+   * the same source is re-added later).
+   */
   removeSource(id: number): void {
     const state = read();
     const placements = { ...state.placements };
     delete placements[id];
+    const customNames = { ...state.customNames };
+    delete customNames[id];
     write({
       ...state,
       customSources: state.customSources.filter((s) => s.id !== id),
       addedDefaultIds: state.addedDefaultIds.filter((sid) => sid !== id),
       placements,
+      customNames,
+      views: pruneSourceFromViews(state.views, id),
     });
+  },
+
+  /** Sets a per-user display-name override for a source (default or custom). */
+  renameSource(id: number, name: string): void {
+    const state = read();
+    write({ ...state, customNames: { ...state.customNames, [id]: name } });
   },
 
   createFolder(name: string, parentId: number | null = null): GuestFolder {
@@ -204,14 +232,33 @@ export const guestStore = {
     });
   },
 
+  /** Deletes a folder and its whole subtree, along with every source placed anywhere in it (like removing them one by one). */
   deleteFolder(id: number): void {
     const state = read();
     const removedIds = new Set([id, ...collectSubtreeIds(state.folders, id)]);
+    const sourceIds = Object.entries(state.placements)
+      .filter(([, folderId]) => folderId != null && removedIds.has(folderId))
+      .map(([sourceId]) => Number(sourceId));
+    const removedSourceIds = new Set(sourceIds);
+
     const placements = { ...state.placements };
-    for (const [sourceId, folderId] of Object.entries(placements)) {
-      if (folderId != null && removedIds.has(folderId)) placements[Number(sourceId)] = null;
+    const customNames = { ...state.customNames };
+    for (const sourceId of sourceIds) {
+      delete placements[sourceId];
+      delete customNames[sourceId];
     }
-    write({ ...state, folders: state.folders.filter((f) => !removedIds.has(f.id)), placements });
+    let views = state.views;
+    for (const sourceId of sourceIds) views = pruneSourceFromViews(views, sourceId);
+
+    write({
+      ...state,
+      folders: state.folders.filter((f) => !removedIds.has(f.id)),
+      customSources: state.customSources.filter((s) => !removedSourceIds.has(s.id)),
+      addedDefaultIds: state.addedDefaultIds.filter((sid) => !removedSourceIds.has(sid)),
+      placements,
+      customNames,
+      views,
+    });
   },
 
   setPlacement(sourceId: number, folderId: number | null): void {
@@ -221,12 +268,12 @@ export const guestStore = {
 
   /**
    * Adds every not-yet-added source of a program: marks it added and places
-   * it into a "Corso di <program>" folder (one subfolder per group) -
-   * reusing an existing same-named folder/subfolder rather than duplicating,
-   * exactly like the server's addProgramForUser. Never touches a source
-   * already added.
+   * it into a "Corso di <program>" folder, walking each source's groupPath
+   * into nested subfolders - reusing an existing same-named folder/subfolder
+   * at each level rather than duplicating, exactly like the server's
+   * addProgramForUser. Never touches a source already added.
    */
-  addProgram(program: string, sources: { id: number; group: string | null }[]): void {
+  addProgram(program: string, sources: { id: number; groupPath: string[] }[]): void {
     const state = read();
     const added = new Set(state.addedDefaultIds);
     const newSources = sources.filter((s) => !added.has(s.id));
@@ -240,34 +287,38 @@ export const guestStore = {
       root = { id: nextFolderId++, name: rootName, position: folders.length, parentId: null };
       folders = [...folders, root];
     }
-    const subfoldersByGroup = new Map<string, GuestFolder>();
-    for (const f of folders) {
-      if (f.parentId === root.id) subfoldersByGroup.set(f.name, f);
+    const folderByParentAndName = new Map<string, GuestFolder>();
+    for (const f of folders) folderByParentAndName.set(`${f.parentId}:${f.name}`, f);
+
+    function resolveSubfolder(parent: GuestFolder, name: string): GuestFolder {
+      const key = `${parent.id}:${name}`;
+      let folder = folderByParentAndName.get(key);
+      if (!folder) {
+        const siblingCount = folders.filter((f) => f.parentId === parent.id).length;
+        folder = { id: nextFolderId++, name, position: siblingCount, parentId: parent.id };
+        folderByParentAndName.set(key, folder);
+        folders = [...folders, folder];
+      }
+      return folder;
     }
 
     const placements = { ...state.placements };
     for (const source of newSources) {
-      let targetFolderId = root.id;
-      if (source.group) {
-        let sub = subfoldersByGroup.get(source.group);
-        if (!sub) {
-          sub = { id: nextFolderId++, name: source.group, position: subfoldersByGroup.size, parentId: root.id };
-          subfoldersByGroup.set(source.group, sub);
-          folders = [...folders, sub];
-        }
-        targetFolderId = sub.id;
-      }
-      placements[source.id] = targetFolderId;
+      let target = root;
+      for (const segment of source.groupPath) target = resolveSubfolder(target, segment);
+      placements[source.id] = target.id;
       added.add(source.id);
     }
     write({ ...state, folders, nextFolderId, placements, addedDefaultIds: [...added] });
   },
 
-  /** Filters the full default-source catalog down to what this guest has added, merging in each one's folder. */
+  /** Filters the full default-source catalog down to what this guest has added, merging in each one's folder and rename override. */
   resolveDefaults(catalog: SourceDto[]): SourceDto[] {
     const state = read();
     const added = new Set(state.addedDefaultIds);
-    return catalog.filter((s) => added.has(s.id)).map((s) => ({ ...s, folderId: state.placements[s.id] ?? null }));
+    return catalog
+      .filter((s) => added.has(s.id))
+      .map((s) => ({ ...s, folderId: state.placements[s.id] ?? null, displayName: state.customNames[s.id] ?? null }));
   },
 
   /** Recomputes each program's `added` state from what this guest has actually added locally. */

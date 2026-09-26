@@ -1,4 +1,4 @@
-# UniTO Planner
+# Uniplanner
 
 A personal calendar webapp that pulls timetables from Cineca "University
 Planner" public calendars (the ones at `*.prod.up.cineca.it/calendarioPubblico/...`),
@@ -61,6 +61,17 @@ In dev, open `http://localhost:5173`. In production (`npm start` or the
 Dockerfile), everything is served from `BASE_URL` on one origin - keep
 `BASE_URL` correct, since it also gates the Google OAuth redirect and the
 CSRF `Origin` check.
+
+## Deploy with Docker + Caddy
+
+```bash
+docker compose up -d
+```
+
+`Caddyfile` reads its site address straight from `BASE_URL` in `.env`
+(no separate domain to configure) - set it to your public HTTPS origin,
+e.g. `https://your-hostname.ddns.net`, with no trailing slash or path.
+Caddy then handles TLS and reverse-proxies to the app container.
 
 ## Security notes
 

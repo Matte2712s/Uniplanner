@@ -3,10 +3,11 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FolderDto, SourceDto, ViewSettings } from '@planner/shared';
-import { buildFolderTree, collectSubtreeIds, folderNameSchema, isSelfOrDescendant } from '@planner/shared';
+import { buildFolderTree, collectSubtreeIds, folderNameSchema, isSelfOrDescendant, sourceNameSchema } from '@planner/shared';
 import { usePlanner } from '../state/PlannerContext.tsx';
 import { AddSourceDialog } from './AddSourceDialog.tsx';
 import { DeleteFolderDialog } from './DeleteFolderDialog.tsx';
+import { DeleteSourceDialog } from './DeleteSourceDialog.tsx';
 import { FolderTree } from './FolderTree.tsx';
 import { IconFolder } from './icons.tsx';
 import { MoveConfirmDialog } from './MoveConfirmDialog.tsx';
@@ -41,6 +42,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [addOpen, setAddOpen] = useState(false);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [pendingDeleteSource, setPendingDeleteSource] = useState<SourceDto | null>(null);
   const [dragging, setDragging] = useState<DragData | null>(null);
   const settings = planner.activeView?.settings;
 
@@ -50,7 +52,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const onChange = (next: ViewSettings) => void planner.updateActiveViewSettings(next);
 
   function sourceDisplayName(source: SourceDto): string {
-    return i18n.language === 'en' ? source.titleEn || source.title : source.title;
+    return source.displayName || (i18n.language === 'en' ? source.titleEn || source.title : source.title);
   }
 
   const all = [...planner.sources.defaults, ...planner.sources.custom];
@@ -120,11 +122,31 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   function handleNewFolder(parentId: number | null) {
     if (planner.foldersAtLimit) return window.alert(t('folders.limitReached'));
-    const input = window.prompt(t('folders.namePlaceholder'));
+    const placeholder = parentId != null ? t('folders.subfolderNamePlaceholder') : t('folders.namePlaceholder');
+    const input = window.prompt(placeholder);
     if (input == null) return;
     const parsed = folderNameSchema.safeParse(input);
     if (!parsed.success) return window.alert(t('folders.invalidName'));
     void planner.createFolder(parsed.data, parentId);
+  }
+
+  function requestRenameSource(source: SourceDto) {
+    const currentName = sourceDisplayName(source);
+    const input = window.prompt(t('sidebar.renameSourcePlaceholder'), currentName);
+    if (input == null) return;
+    const parsed = sourceNameSchema.safeParse(input);
+    if (!parsed.success) return window.alert(t('sidebar.invalidSourceName'));
+    if (parsed.data !== currentName) void planner.renameSource(source.id, parsed.data);
+  }
+
+  function requestDeleteSource(source: SourceDto) {
+    setPendingDeleteSource(source);
+  }
+
+  async function confirmDeleteSource() {
+    if (!pendingDeleteSource) return;
+    await planner.removeSource(pendingDeleteSource.id);
+    setPendingDeleteSource(null);
   }
 
   function requestDeleteFolder(folder: FolderDto) {
@@ -155,19 +177,34 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           expandedByDefault={expandedByDefault}
           settings={settings}
           onChange={onChange}
-          onRemoveSource={(id) => void planner.removeSource(id)}
+          onRemoveSource={requestDeleteSource}
+          onRenameSource={requestRenameSource}
           onRename={handleRename}
           onNewSubfolder={handleNewFolder}
           onDeleteRequest={requestDeleteFolder}
         />
 
         {rootDefaults.map((s) => (
-          <SourceBlock key={s.id} source={s} settings={settings} onChange={onChange} onRemove={() => void planner.removeSource(s.id)} />
+          <SourceBlock
+            key={s.id}
+            source={s}
+            settings={settings}
+            onChange={onChange}
+            onRemove={() => requestDeleteSource(s)}
+            onRename={() => requestRenameSource(s)}
+          />
         ))}
 
         {rootCustom.length > 0 && <div className="section-title">{t('sidebar.customSources')}</div>}
         {rootCustom.map((s) => (
-          <SourceBlock key={s.id} source={s} settings={settings} onChange={onChange} onRemove={() => void planner.removeSource(s.id)} />
+          <SourceBlock
+            key={s.id}
+            source={s}
+            settings={settings}
+            onChange={onChange}
+            onRemove={() => requestDeleteSource(s)}
+            onRename={() => requestRenameSource(s)}
+          />
         ))}
 
         <RootDropZone active={dragging !== null} />
@@ -234,6 +271,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           sourceCount={pendingDelete.sourceCount}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void confirmDeleteFolder()}
+        />
+      )}
+
+      {pendingDeleteSource && (
+        <DeleteSourceDialog
+          sourceName={sourceDisplayName(pendingDeleteSource)}
+          onCancel={() => setPendingDeleteSource(null)}
+          onConfirm={() => void confirmDeleteSource()}
         />
       )}
     </>

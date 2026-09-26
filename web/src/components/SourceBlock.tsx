@@ -6,7 +6,7 @@ import type { SourceDto, ViewSettings, ViewSource } from '@planner/shared';
 import { isCourseVisible } from '@planner/shared';
 import { api } from '../api/client.ts';
 import { colorForCourse } from '../lib/color.ts';
-import { IconGripVertical, IconTrash } from './icons.tsx';
+import { IconGripVertical, IconPencil, IconTrash } from './icons.tsx';
 
 const COURSES_FROM = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
 const COURSES_TO = new Date(Date.now() + 280 * 24 * 60 * 60 * 1000).toISOString();
@@ -27,11 +27,13 @@ export function SourceBlock({
   settings,
   onChange,
   onRemove,
+  onRename,
 }: {
   source: SourceDto;
   settings: ViewSettings;
   onChange: (settings: ViewSettings) => void;
   onRemove: () => void;
+  onRename: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -70,8 +72,9 @@ export function SourceBlock({
     if (viewSource) updateViewSource({ ...viewSource, courseMode: 'include', courses: [] });
   }
 
-  const title = i18n.language === 'en' ? source.titleEn || source.title : source.title;
+  const title = source.displayName || (i18n.language === 'en' ? source.titleEn || source.title : source.title);
   const courses = coursesQuery.data?.courses ?? [];
+  const groupLabel = source.groupPath.length > 0 ? source.groupPath.join(' - ') : null;
 
   return (
     <div className="source-block" style={{ opacity: isDragging ? 0.4 : 1 }}>
@@ -88,12 +91,15 @@ export function SourceBlock({
         />
         <span
           className="name"
-          title={source.group ? `${title} - ${source.group}` : title}
+          title={groupLabel ? `${title} - ${groupLabel}` : title}
           onClick={() => enabled && setExpanded((v) => !v)}
         >
           {title}
-          {source.group && <span className="name-group"> - {source.group}</span>}
+          {groupLabel && <span className="name-group"> - {groupLabel}</span>}
         </span>
+        <button className="icon-btn" title={t('sidebar.renameSource')} onClick={onRename}>
+          <IconPencil />
+        </button>
         <button className="icon-btn" title={t('sidebar.removeSource')} onClick={onRemove}>
           <IconTrash />
         </button>

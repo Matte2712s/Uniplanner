@@ -3,7 +3,7 @@ import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../src/db/index.ts';
-import { createSession, upsertDefaultSource, upsertUser } from '../src/db/repo.ts';
+import { createSession, encodeGroupPath, upsertDefaultSource, upsertUser } from '../src/db/repo.ts';
 import { registerFolderRoutes } from '../src/routes/folders.ts';
 import { registerProgramRoutes } from '../src/routes/programs.ts';
 import { registerSourceRoutes } from '../src/routes/sources.ts';
@@ -34,7 +34,7 @@ function seedInformatica(db: Db) {
     link_calendario_id: '613b9237d969e100173d4110',
     title: 'Canale A',
     title_en: null,
-    group_path: 'Primo anno',
+    group_path: encodeGroupPath(['Primo anno']),
     program: 'Informatica',
   });
   const primoB = upsertDefaultSource(db, {
@@ -42,7 +42,7 @@ function seedInformatica(db: Db) {
     link_calendario_id: '613b92a1d969e100173d4111',
     title: 'Canale B',
     title_en: null,
-    group_path: 'Primo anno',
+    group_path: encodeGroupPath(['Primo anno']),
     program: 'Informatica',
   });
   const secondo = upsertDefaultSource(db, {
@@ -50,7 +50,7 @@ function seedInformatica(db: Db) {
     link_calendario_id: '613b940fda7aec0018faeede',
     title: 'Canale A',
     title_en: null,
-    group_path: 'Secondo anno',
+    group_path: encodeGroupPath(['Secondo anno']),
     program: 'Informatica',
   });
   return { primoA, primoB, secondo };

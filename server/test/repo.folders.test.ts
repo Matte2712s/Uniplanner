@@ -1,18 +1,24 @@
 import { describe, expect, it } from 'vitest';
+import { defaultViewSettings } from '@planner/shared';
 import { openDb } from '../src/db/index.ts';
 import {
   countUserFolders,
   createUserFolder,
+  createView,
   deleteUserFolder,
   getUserFolder,
+  getView,
   insertSource,
   linkUserSource,
   listUserFolders,
   listUserPlacements,
+  listUserSourceNames,
   renameUserFolder,
+  renameUserSource,
   setSourcePlacement,
   unlinkUserSource,
   upsertUser,
+  userCanAccessSource,
 } from '../src/db/repo.ts';
 
 function makeUser(db: ReturnType<typeof openDb>, sub: string) {
@@ -50,7 +56,7 @@ describe('user folders', () => {
     expect(getUserFolder(db, a.id, folder.id)?.name).toBe('Renamed');
   });
 
-  it('falls a source back to unfoldered when its folder is deleted', () => {
+  it('deletes (unlinks) sources placed in a folder when the folder is deleted', () => {
     const db = openDb(':memory:');
     const user = makeUser(db, 'user-a');
     const source = insertSource(db, {
@@ -63,12 +69,74 @@ describe('user folders', () => {
     });
     const folder = createUserFolder(db, user.id, 'Temp');
 
+    linkUserSource(db, user.id, source.id);
     setSourcePlacement(db, user.id, source.id, folder.id);
     expect(listUserPlacements(db, user.id).get(source.id)).toBe(folder.id);
 
     deleteUserFolder(db, user.id, folder.id);
     expect(listUserFolders(db, user.id)).toEqual([]);
-    expect(listUserPlacements(db, user.id).get(source.id)).toBeNull();
+    expect(listUserPlacements(db, user.id).has(source.id)).toBe(false);
+    expect(userCanAccessSource(db, user.id, source.id)).toBe(false);
+  });
+
+  it('cascades a folder deletion through nested subfolders and deletes sources anywhere in the subtree', () => {
+    const db = openDb(':memory:');
+    const user = makeUser(db, 'user-a');
+    const source = insertSource(db, {
+      kind: 'custom',
+      host: 'unito.prod.up.cineca.it',
+      link_calendario_id: '612617b82db4bb0017172839',
+      title: 'Test',
+      title_en: null,
+      created_by: user.id,
+    });
+    const parent = createUserFolder(db, user.id, 'Parent');
+    const child = createUserFolder(db, user.id, 'Child', parent.id);
+
+    linkUserSource(db, user.id, source.id);
+    setSourcePlacement(db, user.id, source.id, child.id);
+
+    deleteUserFolder(db, user.id, parent.id);
+    expect(listUserFolders(db, user.id)).toEqual([]);
+    expect(userCanAccessSource(db, user.id, source.id)).toBe(false);
+  });
+
+  it('forgets a source\'s course selections in every view once it is unlinked', () => {
+    const db = openDb(':memory:');
+    const user = makeUser(db, 'user-a');
+    const source = insertSource(db, {
+      kind: 'custom',
+      host: 'unito.prod.up.cineca.it',
+      link_calendario_id: '612617b82db4bb0017172839',
+      title: 'Test',
+      title_en: null,
+      created_by: user.id,
+    });
+    linkUserSource(db, user.id, source.id);
+
+    const settings = { ...defaultViewSettings(), sources: [{ sourceId: source.id, courseMode: 'include' as const, courses: ['a'] }] };
+    const view = createView(db, user.id, 'My view', settings);
+
+    unlinkUserSource(db, user.id, source.id);
+
+    expect(getView(db, user.id, view.id)?.settings.sources).toEqual([]);
+  });
+
+  it('sets and lists a per-user source rename override', () => {
+    const db = openDb(':memory:');
+    const user = makeUser(db, 'user-a');
+    const source = insertSource(db, {
+      kind: 'custom',
+      host: 'unito.prod.up.cineca.it',
+      link_calendario_id: '612617b82db4bb0017172839',
+      title: 'Test',
+      title_en: null,
+      created_by: user.id,
+    });
+
+    expect(listUserSourceNames(db, user.id).has(source.id)).toBe(false);
+    renameUserSource(db, user.id, source.id, 'My renamed source');
+    expect(listUserSourceNames(db, user.id).get(source.id)).toBe('My renamed source');
   });
 
   it('drops the placement row when a custom source is unlinked', () => {

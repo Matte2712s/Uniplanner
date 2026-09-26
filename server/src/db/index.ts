@@ -104,6 +104,9 @@ const migrations: string[] = [
   ALTER TABLE user_source_placements DROP COLUMN hidden;
   ALTER TABLE user_prefs DROP COLUMN informatica_folder_seeded;
   `,
+  // Per-user rename override for a source (title/title_en are shared config
+  // data, so a personal rename has to live on the per-user placement row).
+  `ALTER TABLE user_source_placements ADD COLUMN custom_name TEXT;`,
 ];
 
 export type Db = DatabaseSync;
