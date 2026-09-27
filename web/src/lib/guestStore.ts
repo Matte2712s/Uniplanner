@@ -79,12 +79,19 @@ function write(state: GuestState): void {
   }
 }
 
+/** True only if the guest actually customized something, not just the untouched starter view. */
 export function hasGuestData(): boolean {
   try {
-    return localStorage.getItem(KEY) !== null;
+    if (localStorage.getItem(KEY) === null) return false;
   } catch {
     return false;
   }
+  const state = read();
+  if (state.customSources.length > 0 || state.folders.length > 0 || state.addedDefaultIds.length > 0) return true;
+  if (state.views.length !== 1) return true;
+  const view = state.views[0];
+  if (!view) return false;
+  return view.name !== 'Il mio orario' || JSON.stringify(view.settings) !== JSON.stringify(defaultViewSettings());
 }
 
 export function wasImportOffered(): boolean {
