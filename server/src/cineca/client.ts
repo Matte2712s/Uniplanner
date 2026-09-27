@@ -4,6 +4,9 @@ import { resolvePublic, SsrfError } from './ssrf.ts';
 
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 400;
+const RETRY_MAX_MS = 3_000;
 
 class PinnedAgent extends Agent {
   constructor(pin: Map<string, string>) {
@@ -35,10 +38,29 @@ class PinnedAgent extends Agent {
 
 export class CinecaFetchError extends Error {}
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// A blocked address or an oversized body will fail the same way every time;
+// only a slow/flaky upstream response is worth retrying.
+function isRetryable(err: unknown): boolean {
+  if (err instanceof SsrfError) return false;
+  if (err instanceof CinecaFetchError) return !err.message.startsWith('Response too large');
+  return true;
+}
+
+function backoffDelay(attempt: number): number {
+  const exp = Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_MAX_MS);
+  return exp * (0.5 + Math.random() * 0.5);
+}
+
 /**
  * Fetches a Cineca API endpoint on an allowlisted host only. DNS is
  * resolved once, checked against private/loopback ranges, then pinned so
- * TOCTOU rebinding cannot redirect the request after the check.
+ * TOCTOU rebinding cannot redirect the request after the check. Retries a
+ * failed attempt with exponential backoff, since Cineca occasionally times
+ * out or errors under load.
  */
 export async function fetchCinecaJson(
   host: string,
@@ -47,6 +69,24 @@ export async function fetchCinecaJson(
 ): Promise<unknown> {
   if (!isCinecaHost(host)) throw new CinecaFetchError(`Host not allowlisted: ${host}`);
 
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fetchCinecaJsonAttempt(host, urlPath, init);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === MAX_ATTEMPTS - 1 || !isRetryable(err)) throw err;
+      await sleep(backoffDelay(attempt));
+    }
+  }
+  throw lastErr;
+}
+
+async function fetchCinecaJsonAttempt(
+  host: string,
+  urlPath: string,
+  init: { method: 'GET' | 'POST'; query?: Record<string, string>; body?: unknown },
+): Promise<unknown> {
   const resolved = await resolvePublic(host);
   const pin = new Map(resolved.map((r) => [host, r.address] as const));
   const agent = new PinnedAgent(pin);

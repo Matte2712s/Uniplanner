@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import type { CalendarEventDto, CalendarMode, ViewSettings } from '@planner/shared';
 import { api } from '../api/client.ts';
 import { colorForCourse } from '../lib/color.ts';
+import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { useIsMobile } from '../hooks/useMediaQuery.ts';
 
 export interface CalendarViewHandle {
@@ -124,6 +125,8 @@ export const CalendarView = forwardRef<
     queryKey: ['events', settings, range?.from, range?.to],
     queryFn: () => api.previewEvents(range!.from, range!.to, settings),
     enabled: Boolean(range) && settings.sources.length > 0,
+    retry: CINECA_QUERY_RETRY,
+    retryDelay: cinecaRetryDelay,
   });
 
   const events: EventInput[] = useMemo(() => {
@@ -148,11 +151,38 @@ export const CalendarView = forwardRef<
   }
 
   const errorCount = eventsQuery.data?.errors.length ?? 0;
+  const isRetrying = eventsQuery.isFetching && eventsQuery.failureCount > 0;
+  // No data at all yet: block the (empty) grid with a full overlay. Once
+  // something is on screen, a retry (e.g. after a Cineca hiccup) or a
+  // background refetch only needs a small corner badge so stale data stays
+  // readable while fresh data loads.
+  const showInitialLoading = eventsQuery.isLoading;
+  const showBackgroundSync = eventsQuery.isFetching && !eventsQuery.isLoading;
 
   return (
     <>
-      {errorCount > 0 && <div className="banner">{t('sidebar.sourceError')} ({errorCount})</div>}
-      <div ref={wrapRef} style={{ height: '100%' }}>
+      {eventsQuery.isError && (
+        <div className="banner">
+          {t('calendar.loadError')}
+          <button className="text-btn" onClick={() => eventsQuery.refetch()}>
+            {t('action.retry')}
+          </button>
+        </div>
+      )}
+      {!eventsQuery.isError && errorCount > 0 && <div className="banner">{t('sidebar.sourceError')} ({errorCount})</div>}
+      <div ref={wrapRef} style={{ height: '100%', position: 'relative' }}>
+        {showInitialLoading && (
+          <div className="calendar-loading-overlay">
+            <span className="spinner spinner-lg" />
+            <p>{isRetrying ? t('calendar.retrying') : t('calendar.loadingEvents')}</p>
+          </div>
+        )}
+        {showBackgroundSync && (
+          <div className="calendar-loading-badge">
+            <span className="spinner" />
+            <span>{isRetrying ? t('calendar.retrying') : t('calendar.loadingEvents')}</span>
+          </div>
+        )}
         <FullCalendar
           ref={calRef}
           plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}

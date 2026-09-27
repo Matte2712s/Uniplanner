@@ -6,6 +6,7 @@ import type { SourceDto, ViewSettings, ViewSource } from '@planner/shared';
 import { isCourseVisible } from '@planner/shared';
 import { api } from '../api/client.ts';
 import { colorForCourse } from '../lib/color.ts';
+import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { IconGripVertical, IconPencil, IconTrash } from './icons.tsx';
 
 const COURSES_FROM = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
@@ -50,6 +51,8 @@ export function SourceBlock({
     queryFn: () => api.sourceCourses(source.id, COURSES_FROM, COURSES_TO),
     enabled: enabled && expanded,
     staleTime: 10 * 60_000,
+    retry: CINECA_QUERY_RETRY,
+    retryDelay: cinecaRetryDelay,
   });
 
   function setEnabled(next: boolean) {
@@ -112,8 +115,20 @@ export function SourceBlock({
 
       {enabled && expanded && viewSource && (
         <div className="course-list">
-          {coursesQuery.isLoading && <p className="hint">{t('sidebar.loadingCourses')}</p>}
-          {coursesQuery.isError && <p className="error-text">{t('sidebar.sourceError')}</p>}
+          {coursesQuery.isLoading && (
+            <p className="hint">
+              <span className="spinner" />{' '}
+              {coursesQuery.isFetching && coursesQuery.failureCount > 0 ? t('calendar.retrying') : t('sidebar.loadingCourses')}
+            </p>
+          )}
+          {coursesQuery.isError && (
+            <p className="error-text">
+              {t('sidebar.sourceError')}{' '}
+              <button className="text-btn" onClick={() => coursesQuery.refetch()}>
+                {t('action.retry')}
+              </button>
+            </p>
+          )}
           {!coursesQuery.isLoading && courses.length === 0 && <p className="hint">{t('sidebar.noCourses')}</p>}
           {courses.length > 0 && (
             <div style={{ display: 'flex', gap: 8 }}>
