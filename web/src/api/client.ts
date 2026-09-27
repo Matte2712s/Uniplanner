@@ -5,6 +5,7 @@ import type {
   Lang,
   MeDto,
   ProgramDto,
+  SharedViewDto,
   SourceDto,
   View,
   ViewSettings,
@@ -82,6 +83,10 @@ export const api = {
   deleteView: (id: number) => call<{ ok: true }>(`/api/views/${id}`, { method: 'DELETE' }),
   reorderViews: (order: number[]) =>
     call<{ views: View[] }>('/api/views/order', { method: 'PUT', body: JSON.stringify({ order }) }),
+  shareView: (id: number) => call<{ view: View }>(`/api/views/${id}/share`, { method: 'POST' }),
+  unshareView: (id: number) => call<{ view: View }>(`/api/views/${id}/share`, { method: 'DELETE' }),
+
+  sharedView: (token: string) => call<SharedViewDto>(`/api/shared/${encodeURIComponent(token)}`),
 
   prefs: () => call<{ activeViewId: number | null; lang: Lang }>('/api/prefs'),
   setPrefs: (patch: { activeViewId?: number | null; lang?: Lang }) =>

@@ -107,6 +107,12 @@ const migrations: string[] = [
   // Per-user rename override for a source (title/title_en are shared config
   // data, so a personal rename has to live on the per-user placement row).
   `ALTER TABLE user_source_placements ADD COLUMN custom_name TEXT;`,
+  // Public read-only share link for a view: a random token, unique when set.
+  // NULL means the view isn't shared.
+  `
+  ALTER TABLE views ADD COLUMN share_token TEXT;
+  CREATE UNIQUE INDEX views_share_token ON views(share_token) WHERE share_token IS NOT NULL;
+  `,
 ];
 
 export type Db = DatabaseSync;

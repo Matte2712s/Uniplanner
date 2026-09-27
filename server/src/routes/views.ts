@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { MAX_VIEWS_PER_USER, viewInputSchema, viewPatchSchema } from '@planner/shared';
 import type { Db } from '../db/index.ts';
-import { createView, deleteView, getView, listViews, reorderViews, updateView } from '../db/repo.ts';
+import { createView, deleteView, getView, listViews, reorderViews, setViewShareToken, updateView } from '../db/repo.ts';
 import { requireUser } from '../auth/session.ts';
 
 export function registerViewRoutes(app: FastifyInstance, db: Db): void {
@@ -67,5 +68,30 @@ export function registerViewRoutes(app: FastifyInstance, db: Db): void {
     if (!getView(db, user.id, id)) return reply.code(404).send({ error: 'not_found' });
     deleteView(db, user.id, id);
     return { ok: true };
+  });
+
+  // POST /api/views/:id/share
+  app.post('/api/views/:id/share', async (req, reply) => {
+    const user = requireUser(db, req, reply);
+    if (!user) return;
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'invalid_id' });
+    // 144 bits of randomness, url-safe: issuing a new token also silently
+    // invalidates whatever link was shared before.
+    const token = randomBytes(18).toString('base64url');
+    const view = setViewShareToken(db, user.id, id, token);
+    if (!view) return reply.code(404).send({ error: 'not_found' });
+    return { view };
+  });
+
+  // DELETE /api/views/:id/share
+  app.delete('/api/views/:id/share', async (req, reply) => {
+    const user = requireUser(db, req, reply);
+    if (!user) return;
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'invalid_id' });
+    const view = setViewShareToken(db, user.id, id, null);
+    if (!view) return reply.code(404).send({ error: 'not_found' });
+    return { view };
   });
 }

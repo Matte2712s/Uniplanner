@@ -12,6 +12,7 @@ import { env, googleEnabled } from './env.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerFolderRoutes } from './routes/folders.ts';
 import { registerProgramRoutes } from './routes/programs.ts';
+import { registerSharedViewRoutes } from './routes/shared.ts';
 import { registerSourceRoutes } from './routes/sources.ts';
 import { registerViewRoutes } from './routes/views.ts';
 import { registerPrefsRoutes } from './routes/prefs.ts';
@@ -72,6 +73,7 @@ registerProgramRoutes(app, db);
 registerViewRoutes(app, db);
 registerPrefsRoutes(app, db);
 registerEventRoutes(app, db);
+registerSharedViewRoutes(app, db);
 
 // GET /api/health
 app.get('/api/health', async () => {

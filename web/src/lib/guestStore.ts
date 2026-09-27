@@ -54,6 +54,7 @@ function seed(): GuestState {
     position: 0,
     settings: defaultViewSettings(),
     updatedAt: new Date().toISOString(),
+    shareToken: null,
   };
   return {
     views: [view],
@@ -140,6 +141,7 @@ export const guestStore = {
       position: state.views.length,
       settings,
       updatedAt: new Date().toISOString(),
+      shareToken: null,
     };
     write({ ...state, views: [...state.views, view], nextId: state.nextId + 1, activeViewId: view.id });
     return view;

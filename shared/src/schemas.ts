@@ -99,6 +99,13 @@ export interface View {
   position: number;
   settings: ViewSettings;
   updatedAt: string;
+  // Public share link token; null when this view isn't shared.
+  shareToken: string | null;
+}
+
+export interface SharedViewDto {
+  name: string;
+  settings: ViewSettings;
 }
 
 export interface SourceDto {

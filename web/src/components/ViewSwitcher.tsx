@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { View } from '@planner/shared';
 import { usePlanner } from '../state/PlannerContext.tsx';
 import { useDropdown } from '../hooks/useDropdown.ts';
 import {
@@ -10,13 +12,16 @@ import {
   IconLayers,
   IconPencil,
   IconPlus,
+  IconShare,
   IconTrash,
 } from './icons.tsx';
+import { ShareViewDialog } from './ShareViewDialog.tsx';
 
 export function ViewSwitcher() {
   const { t } = useTranslation();
   const planner = usePlanner();
   const { open, setOpen, ref } = useDropdown();
+  const [sharing, setSharing] = useState<View | null>(null);
 
   function handleNew() {
     const name = window.prompt(t('views.namePlaceholder'));
@@ -89,6 +94,11 @@ export function ViewSwitcher() {
                   <button className="icon-btn icon-btn-sm" title={t('views.duplicate')} onClick={() => void planner.duplicateView(v.id)}>
                     <IconCopy />
                   </button>
+                  {planner.user && (
+                    <button className="icon-btn icon-btn-sm" title={t('views.share')} onClick={() => setSharing(v)}>
+                      <IconShare />
+                    </button>
+                  )}
                   <button
                     className="icon-btn icon-btn-sm"
                     title={t('views.delete')}
@@ -113,6 +123,12 @@ export function ViewSwitcher() {
             </button>
           )}
         </div>
+      )}
+      {sharing && (
+        <ShareViewDialog
+          view={planner.views.find((v) => v.id === sharing.id) ?? sharing}
+          onClose={() => setSharing(null)}
+        />
       )}
     </div>
   );

@@ -45,6 +45,8 @@ interface PlannerState {
   deleteView(id: number): Promise<void>;
   reorderViews(order: number[]): Promise<void>;
   viewsAtLimit: boolean;
+  shareView(id: number): Promise<void>;
+  unshareView(id: number): Promise<void>;
 
   pendingImport: { count: number } | null;
   confirmImport(): Promise<void>;
@@ -132,6 +134,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   });
   const reorderViewsMutation = useMutation({
     mutationFn: (order: number[]) => api.reorderViews(order),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['views'] }),
+  });
+  const shareViewMutation = useMutation({
+    mutationFn: (id: number) => api.shareView(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['views'] }),
+  });
+  const unshareViewMutation = useMutation({
+    mutationFn: (id: number) => api.unshareView(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['views'] }),
   });
   const setActivePrefMutation = useMutation({
@@ -364,6 +374,16 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       }
     },
     viewsAtLimit: authed ? views.length >= MAX_VIEWS_PER_USER : false,
+    // Guest views only live in this browser's local storage, so there's no
+    // server-side row a share token could point at - sharing requires an account.
+    shareView: async (id) => {
+      if (!authed) return;
+      await shareViewMutation.mutateAsync(id);
+    },
+    unshareView: async (id) => {
+      if (!authed) return;
+      await unshareViewMutation.mutateAsync(id);
+    },
 
     pendingImport,
     confirmImport: async () => {

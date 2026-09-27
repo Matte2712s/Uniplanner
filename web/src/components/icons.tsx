@@ -140,6 +140,17 @@ export function IconFolder(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function IconShare(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <circle cx="12.5" cy="4" r="1.7" />
+      <circle cx="3.5" cy="8" r="1.7" />
+      <circle cx="12.5" cy="12" r="1.7" />
+      <path d="M5 7.1l6-2.2M5 8.9l6 2.2" />
+    </Svg>
+  );
+}
+
 export function IconGripVertical(props: SVGProps<SVGSVGElement>) {
   return (
     <Svg {...props}>

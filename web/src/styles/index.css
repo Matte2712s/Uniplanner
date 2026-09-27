@@ -147,6 +147,7 @@ a {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
 .sidebar {
@@ -247,8 +248,12 @@ a {
   .segmented button {
     padding: 8px;
   }
+  /* Anchored to .layout (which already starts below the top bar), not the
+     viewport - the top bar wraps to a variable number of rows on narrow
+     screens, and a fixed/inset:0 drawer would start at the true viewport
+     top and render underneath the top bar's higher z-index. */
   .sidebar {
-    position: fixed;
+    position: absolute;
     inset: 0;
     width: 100%;
     min-width: 0;
@@ -266,7 +271,7 @@ a {
     border-right: 1px solid var(--border);
   }
   .sidebar-backdrop {
-    position: fixed;
+    position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
     z-index: 30;
@@ -541,6 +546,16 @@ a {
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
+}
+
+.share-link-row {
+  display: flex;
+  gap: 8px;
+}
+
+.share-link-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 .btn {
@@ -831,6 +846,20 @@ a {
 
 .view-menu-new:hover {
   background: var(--surface-2);
+}
+
+/* The trigger can land anywhere in the wrapped top bar, so a dropdown
+   anchored to it (min-width 280px) can run off the right edge on narrow
+   phones. Anchor to the full-width top bar instead and clamp both sides. */
+@media (max-width: 767px) {
+  .view-menu {
+    position: static;
+  }
+  .view-menu-list {
+    left: 10px;
+    right: 10px;
+    min-width: 0;
+  }
 }
 
 /* Account menu */

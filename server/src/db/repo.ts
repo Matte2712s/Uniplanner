@@ -30,6 +30,7 @@ export interface ViewRow {
   position: number;
   settings: string;
   updated_at: string;
+  share_token: string | null;
 }
 
 export function upsertUser(db: Db, sub: string, email: string, name: string, pictureUrl: string | null = null): UserRow {
@@ -388,14 +389,21 @@ export function renameUserSource(db: Db, userId: number, sourceId: number, name:
   ).run(userId, sourceId, name);
 }
 
-function parseView(row: ViewRow): { id: number; name: string; position: number; settings: ViewSettings; updatedAt: string } {
+function parseView(row: ViewRow) {
   let settings: ViewSettings;
   try {
     settings = JSON.parse(row.settings);
   } catch {
     settings = defaultViewSettings();
   }
-  return { id: row.id, name: row.name, position: row.position, settings, updatedAt: row.updated_at };
+  return {
+    id: row.id,
+    name: row.name,
+    position: row.position,
+    settings,
+    updatedAt: row.updated_at,
+    shareToken: row.share_token,
+  };
 }
 
 export function listViews(db: Db, userId: number) {
@@ -436,6 +444,18 @@ export function updateView(db: Db, userId: number, viewId: number, patch: { name
 
 export function deleteView(db: Db, userId: number, viewId: number): void {
   db.prepare('DELETE FROM views WHERE id = ? AND user_id = ?').run(viewId, userId);
+}
+
+/** Sets or clears (token = null) a view's public share token. Returns undefined if the view isn't the user's. */
+export function setViewShareToken(db: Db, userId: number, viewId: number, token: string | null) {
+  if (!getView(db, userId, viewId)) return undefined;
+  db.prepare('UPDATE views SET share_token = ? WHERE id = ? AND user_id = ?').run(token, viewId, userId);
+  return getView(db, userId, viewId);
+}
+
+export function getViewByShareToken(db: Db, token: string) {
+  const row = db.prepare('SELECT * FROM views WHERE share_token = ?').get(token) as ViewRow | undefined;
+  return row ? parseView(row) : undefined;
 }
 
 export function reorderViews(db: Db, userId: number, orderedIds: number[]): void {
