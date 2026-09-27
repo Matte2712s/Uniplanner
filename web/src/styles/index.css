@@ -154,10 +154,18 @@ a {
   min-width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
   padding: 12px;
   transition: width 0.2s ease;
   flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* Desktop only: drag strip between the sidebar and the calendar. Width is
@@ -1010,6 +1018,19 @@ a {
 .empty-state {
   padding: 40px 16px;
   text-align: center;
+  color: var(--text-muted);
+}
+
+.legal-links {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.legal-links a {
   color: var(--text-muted);
 }
 

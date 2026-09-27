@@ -101,5 +101,7 @@
   "empty.noEvents": "Nessun evento in questo periodo.",
   "empty.noSources": "Seleziona almeno una fonte dalla barra laterale.",
   "lang.it": "IT",
-  "lang.en": "EN"
+  "lang.en": "EN",
+  "legal.privacy": "Informativa sulla privacy",
+  "legal.terms": "Termini di servizio"
 }

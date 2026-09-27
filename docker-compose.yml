@@ -45,6 +45,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
+  duckdns:
+    build: ./duckdns
+    container_name: unito-planner-duckdns
+    env_file: .env
+    restart: unless-stopped
+
 volumes:
   caddy_data:
   caddy_config:

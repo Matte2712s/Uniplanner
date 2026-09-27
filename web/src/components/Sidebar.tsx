@@ -168,83 +168,90 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <div className="section-title">{t('sidebar.sources')}</div>
+      <div className="sidebar-scroll">
+        <div className="section-title">{t('sidebar.sources')}</div>
 
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <FolderTree
-          nodes={tree}
-          sourcesByFolder={sourcesByFolder}
-          expandedByDefault={expandedByDefault}
-          settings={settings}
-          onChange={onChange}
-          onRemoveSource={requestDeleteSource}
-          onRenameSource={requestRenameSource}
-          onRename={handleRename}
-          onNewSubfolder={handleNewFolder}
-          onDeleteRequest={requestDeleteFolder}
-        />
-
-        {rootDefaults.map((s) => (
-          <SourceBlock
-            key={s.id}
-            source={s}
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <FolderTree
+            nodes={tree}
+            sourcesByFolder={sourcesByFolder}
+            expandedByDefault={expandedByDefault}
             settings={settings}
             onChange={onChange}
-            onRemove={() => requestDeleteSource(s)}
-            onRename={() => requestRenameSource(s)}
+            onRemoveSource={requestDeleteSource}
+            onRenameSource={requestRenameSource}
+            onRename={handleRename}
+            onNewSubfolder={handleNewFolder}
+            onDeleteRequest={requestDeleteFolder}
           />
-        ))}
 
-        {rootCustom.length > 0 && <div className="section-title">{t('sidebar.customSources')}</div>}
-        {rootCustom.map((s) => (
-          <SourceBlock
-            key={s.id}
-            source={s}
-            settings={settings}
-            onChange={onChange}
-            onRemove={() => requestDeleteSource(s)}
-            onRename={() => requestRenameSource(s)}
+          {rootDefaults.map((s) => (
+            <SourceBlock
+              key={s.id}
+              source={s}
+              settings={settings}
+              onChange={onChange}
+              onRemove={() => requestDeleteSource(s)}
+              onRename={() => requestRenameSource(s)}
+            />
+          ))}
+
+          {rootCustom.length > 0 && <div className="section-title">{t('sidebar.customSources')}</div>}
+          {rootCustom.map((s) => (
+            <SourceBlock
+              key={s.id}
+              source={s}
+              settings={settings}
+              onChange={onChange}
+              onRemove={() => requestDeleteSource(s)}
+              onRename={() => requestRenameSource(s)}
+            />
+          ))}
+
+          <RootDropZone active={dragging !== null} />
+
+          <DragOverlay>
+            {dragging && (
+              <div className="drag-overlay-card">
+                {dragging.kind === 'folder' && <IconFolder />}
+                <span>{dragging.kind === 'folder' ? dragging.folder.name : sourceDisplayName(dragging.source)}</span>
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button className="btn" style={{ flex: 1 }} onClick={() => setAddOpen(true)}>
+            + {t('sidebar.addSource')}
+          </button>
+          <button className="btn" onClick={() => handleNewFolder(null)} disabled={planner.foldersAtLimit}>
+            + {t('folders.new')}
+          </button>
+        </div>
+
+        <div className="section-title">{t('sidebar.options')}</div>
+        <label className="checkbox-row" style={{ marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={settings.hideWeekends}
+            onChange={(e) => void planner.updateActiveViewSettings({ ...settings, hideWeekends: e.target.checked })}
           />
-        ))}
-
-        <RootDropZone active={dragging !== null} />
-
-        <DragOverlay>
-          {dragging && (
-            <div className="drag-overlay-card">
-              {dragging.kind === 'folder' && <IconFolder />}
-              <span>{dragging.kind === 'folder' ? dragging.folder.name : sourceDisplayName(dragging.source)}</span>
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <button className="btn" style={{ flex: 1 }} onClick={() => setAddOpen(true)}>
-          + {t('sidebar.addSource')}
-        </button>
-        <button className="btn" onClick={() => handleNewFolder(null)} disabled={planner.foldersAtLimit}>
-          + {t('folders.new')}
-        </button>
+          {t('sidebar.hideWeekends')}
+        </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.showCancelled}
+            onChange={(e) => void planner.updateActiveViewSettings({ ...settings, showCancelled: e.target.checked })}
+          />
+          {t('sidebar.showCancelled')}
+        </label>
       </div>
 
-      <div className="section-title">{t('sidebar.options')}</div>
-      <label className="checkbox-row" style={{ marginBottom: 8 }}>
-        <input
-          type="checkbox"
-          checked={settings.hideWeekends}
-          onChange={(e) => void planner.updateActiveViewSettings({ ...settings, hideWeekends: e.target.checked })}
-        />
-        {t('sidebar.hideWeekends')}
-      </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          checked={settings.showCancelled}
-          onChange={(e) => void planner.updateActiveViewSettings({ ...settings, showCancelled: e.target.checked })}
-        />
-        {t('sidebar.showCancelled')}
-      </label>
+      <div className="legal-links">
+        <a href="/privacy.html">{t('legal.privacy')}</a>
+        <a href="/terms.html">{t('legal.terms')}</a>
+      </div>
 
       {addOpen && (
         <AddSourceDialog

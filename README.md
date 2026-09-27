@@ -73,6 +73,12 @@ docker compose up -d
 e.g. `https://your-hostname.ddns.net`, with no trailing slash or path.
 Caddy then handles TLS and reverse-proxies to the app container.
 
+`docker compose up -d` also starts a `duckdns` container that keeps a
+`*.duckdns.org` hostname pointed at your current IP (a cron job every 5
+minutes, same as DuckDNS's own install instructions) - it idles doing
+nothing unless `DUCKDNS_SUBDOMAIN`/`DUCKDNS_TOKEN` are set, see `DUCKDNS_*`
+in `.env.example`.
+
 ## Security notes
 
 - Custom source URLs are parsed and validated against a strict allowlist
