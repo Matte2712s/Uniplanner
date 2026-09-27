@@ -80,25 +80,33 @@ app.get('/api/health', async () => {
 });
 
 const indexHtmlPath = path.join(env.webDist, 'index.html');
+const homeHtmlPath = path.join(env.webDist, 'home.html');
 
 // Read fresh on every request (a cheap, small file) rather than caching it
 // at startup - otherwise redeploying the web build without also restarting
 // this process keeps serving old hashed asset filenames indefinitely.
-function renderIndexHtml(nonce: string | undefined): string | null {
-  if (!existsSync(indexHtmlPath)) return null;
-  return readFileSync(indexHtmlPath, 'utf8').replace('<script type="module"', `<script nonce="${nonce}" type="module"`);
+function renderHtml(filePath: string, nonce: string | undefined): string | null {
+  if (!existsSync(filePath)) return null;
+  return readFileSync(filePath, 'utf8').replace('<script type="module"', `<script nonce="${nonce}" type="module"`);
 }
 
 if (existsSync(indexHtmlPath)) {
   await app.register(fastifyStatic, { root: env.webDist, index: false });
   app.get('/', async (req, reply) => {
-    const html = renderIndexHtml(req.raw.cspNonce);
+    const html = renderHtml(indexHtmlPath, req.raw.cspNonce);
+    if (!html) return reply.code(404).send({ error: 'not_found' });
+    reply.type('text/html').send(html);
+  });
+  // Plain, login-free page explaining what the app does - set as the
+  // OAuth consent screen's home page URL. The actual app lives at /.
+  app.get('/home', async (req, reply) => {
+    const html = renderHtml(homeHtmlPath, req.raw.cspNonce);
     if (!html) return reply.code(404).send({ error: 'not_found' });
     reply.type('text/html').send(html);
   });
   app.setNotFoundHandler((req, reply) => {
     if (req.raw.url?.startsWith('/api/')) return reply.code(404).send({ error: 'not_found' });
-    const html = renderIndexHtml(req.raw.cspNonce);
+    const html = renderHtml(indexHtmlPath, req.raw.cspNonce);
     if (!html) return reply.code(404).send({ error: 'not_found' });
     reply.type('text/html').send(html);
   });
