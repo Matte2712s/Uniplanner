@@ -48,6 +48,11 @@ export function AccountMenu() {
             </div>
           </div>
           <div className="view-menu-divider" />
+          {planner.user.isAdmin && (
+            <a className="view-menu-new" href="/admin">
+              Admin
+            </a>
+          )}
           <button
             className="view-menu-new"
             onClick={() => {

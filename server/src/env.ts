@@ -26,3 +26,14 @@ export const env = {
 };
 
 export const googleEnabled = Boolean(env.googleClientId && env.googleClientSecret);
+
+const adminEmails = new Set(
+  (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export function isAdminEmail(email: string): boolean {
+  return adminEmails.has(email.trim().toLowerCase());
+}

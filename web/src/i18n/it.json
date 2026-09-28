@@ -38,6 +38,7 @@
   "sidebar.options": "Opzioni",
   "sidebar.addSource": "Aggiungi fonte",
   "sidebar.noCourses": "Nessun insegnamento trovato",
+  "sidebar.previewHint": "Attiva questa fonte per scegliere quali insegnamenti mostrare",
   "sidebar.selectAll": "Tutti",
   "sidebar.selectNone": "Nessuno",
   "sidebar.removeSource": "Rimuovi",

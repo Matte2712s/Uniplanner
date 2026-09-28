@@ -10,6 +10,8 @@ export const MAX_RANGE_DAYS = 45;
 // Course discovery needs a much wider window (a full academic year) than
 // any single calendar view render, but it must still be bounded.
 export const MAX_COURSES_RANGE_DAYS = 400;
+// A custom source's last_ok_at older than this (or never set) is flagged stale in the admin dashboard.
+export const ADMIN_STALE_SOURCE_DAYS = 30;
 
 export const courseKeySchema = z.string().min(1).max(400);
 export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -185,6 +187,69 @@ export interface MeDto {
   email: string;
   name: string;
   pictureUrl: string | null;
+  // UX hint only (whether to show the admin entry point) - every /api/admin/*
+  // route re-derives this from the session itself, never trusts this flag.
+  isAdmin: boolean;
+}
+
+export const promoteSourceSchema = z.object({
+  program: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((s) => !hasControlOrInvisibleChars(s), 'invalid_chars'),
+});
+
+export interface AdminUserDto {
+  id: number;
+  email: string;
+  name: string;
+  createdAt: string;
+  pictureUrl: string | null;
+  viewCount: number;
+  customSourceCount: number;
+}
+
+export interface AdminCustomSourceDto {
+  id: number;
+  host: string;
+  linkCalendarioId: string;
+  title: string;
+  titleEn: string | null;
+  url: string;
+  createdByEmail: string | null;
+  lastOkAt: string | null;
+  linkedUserCount: number;
+  // lastOkAt is null, or older than ADMIN_STALE_SOURCE_DAYS
+  stale: boolean;
+}
+
+export interface AdminStatsDto {
+  userCount: number;
+  activeSessionCount: number;
+  eventCache: { rowCount: number; distinctSourceCount: number; newestFetchedAt: number | null };
+  resource: { dbSizeBytes: number; uptimeSeconds: number; rssBytes: number };
+}
+
+export interface AdminDefaultSourceDto {
+  id: number;
+  host: string;
+  linkCalendarioId: string;
+  title: string;
+  titleEn: string | null;
+  url: string;
+  program: string | null;
+  groupPath: string[];
+  linkedUserCount: number;
+}
+
+export interface AdminOverviewDto {
+  stats: AdminStatsDto;
+  users: AdminUserDto[];
+  customSources: AdminCustomSourceDto[];
+  defaultSources: AdminDefaultSourceDto[];
+  existingPrograms: string[];
 }
 
 export function defaultViewSettings(): ViewSettings {

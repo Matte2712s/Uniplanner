@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import { upsertUser } from '../db/repo.ts';
 import { completeGoogleLogin, GoogleAuthError, startGoogleLogin } from '../auth/google.ts';
 import { clearSession, currentUser, issueSession } from '../auth/session.ts';
-import { env, googleEnabled } from '../env.ts';
+import { env, googleEnabled, isAdminEmail } from '../env.ts';
 
 export function registerAuthRoutes(app: FastifyInstance, db: Db): void {
   // GET /api/auth/google
@@ -37,7 +37,13 @@ export function registerAuthRoutes(app: FastifyInstance, db: Db): void {
       if (!email || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
       const user = upsertUser(db, `dev:${email}`, email, body.name?.trim() || email);
       issueSession(db, reply, user.id);
-      return { id: user.id, email: user.email, name: user.name, pictureUrl: user.picture_url } satisfies MeDto;
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        pictureUrl: user.picture_url,
+        isAdmin: isAdminEmail(user.email),
+      } satisfies MeDto;
     });
   }
 
@@ -51,6 +57,12 @@ export function registerAuthRoutes(app: FastifyInstance, db: Db): void {
   app.get('/api/me', async (req, reply) => {
     const user = currentUser(db, req, reply);
     if (!user) return reply.code(200).send(null);
-    return { id: user.id, email: user.email, name: user.name, pictureUrl: user.picture_url } satisfies MeDto;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      pictureUrl: user.picture_url,
+      isAdmin: isAdminEmail(user.email),
+    } satisfies MeDto;
   });
 }

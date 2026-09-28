@@ -1,4 +1,5 @@
 import type {
+  AdminOverviewDto,
   CourseDto,
   EventsResponse,
   FolderDto,
@@ -91,4 +92,10 @@ export const api = {
   prefs: () => call<{ activeViewId: number | null; lang: Lang }>('/api/prefs'),
   setPrefs: (patch: { activeViewId?: number | null; lang?: Lang }) =>
     call<{ activeViewId: number | null; lang: Lang }>('/api/prefs', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  adminOverview: () => call<AdminOverviewDto>('/api/admin/overview'),
+  adminPromoteSource: (id: number, program: string) =>
+    call<{ ok: true }>(`/api/admin/sources/${id}/promote`, { method: 'POST', body: JSON.stringify({ program }) }),
+  adminCheckSource: (id: number) =>
+    call<{ ok: true } | { ok: false; error: string }>(`/api/admin/sources/${id}/check`, { method: 'POST' }),
 };

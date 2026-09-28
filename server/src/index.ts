@@ -9,6 +9,7 @@ import path from 'node:path';
 import { openDb } from './db/index.ts';
 import { purgeExpiredSessions } from './db/repo.ts';
 import { env, googleEnabled } from './env.ts';
+import { registerAdminRoutes } from './routes/admin.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerFolderRoutes } from './routes/folders.ts';
 import { registerProgramRoutes } from './routes/programs.ts';
@@ -74,6 +75,7 @@ registerViewRoutes(app, db);
 registerPrefsRoutes(app, db);
 registerEventRoutes(app, db);
 registerSharedViewRoutes(app, db);
+registerAdminRoutes(app, db);
 
 // GET /api/health
 app.get('/api/health', async () => {

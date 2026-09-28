@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db/index.ts';
 import { createSession, deleteSession, getSession, getUserById, touchSession, type UserRow } from '../db/repo.ts';
-import { env } from '../env.ts';
+import { env, isAdminEmail } from '../env.ts';
 
 export const SESSION_COOKIE = 'session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -60,6 +60,16 @@ export function requireUser(db: Db, req: FastifyRequest, reply: FastifyReply): U
   const user = currentUser(db, req, reply);
   if (!user) {
     reply.code(401).send({ error: 'unauthenticated' });
+    return undefined;
+  }
+  return user;
+}
+
+export function requireAdmin(db: Db, req: FastifyRequest, reply: FastifyReply): UserRow | undefined {
+  const user = requireUser(db, req, reply);
+  if (!user) return undefined;
+  if (!isAdminEmail(user.email)) {
+    reply.code(403).send({ error: 'forbidden' });
     return undefined;
   }
   return user;

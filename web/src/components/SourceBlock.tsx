@@ -49,7 +49,7 @@ export function SourceBlock({
   const coursesQuery = useQuery({
     queryKey: ['courses', source.id],
     queryFn: () => api.sourceCourses(source.id, COURSES_FROM, COURSES_TO),
-    enabled: enabled && expanded,
+    enabled: expanded,
     staleTime: 10 * 60_000,
     retry: CINECA_QUERY_RETRY,
     retryDelay: cinecaRetryDelay,
@@ -92,11 +92,7 @@ export function SourceBlock({
           aria-label={title}
           style={{ width: 20, height: 20 }}
         />
-        <span
-          className="name"
-          title={groupLabel ? `${title} - ${groupLabel}` : title}
-          onClick={() => enabled && setExpanded((v) => !v)}
-        >
+        <span className="name" title={groupLabel ? `${title} - ${groupLabel}` : title} onClick={() => setExpanded((v) => !v)}>
           {title}
           {groupLabel && <span className="name-group"> - {groupLabel}</span>}
         </span>
@@ -106,15 +102,14 @@ export function SourceBlock({
         <button className="icon-btn" title={t('sidebar.removeSource')} onClick={onRemove}>
           <IconTrash />
         </button>
-        {enabled && (
-          <button className="icon-btn" onClick={() => setExpanded((v) => !v)} aria-label={expanded ? t('nav.closeMenu') : t('nav.openMenu')}>
-            {expanded ? '▴' : '▾'}
-          </button>
-        )}
+        <button className="icon-btn" onClick={() => setExpanded((v) => !v)} aria-label={expanded ? t('nav.closeMenu') : t('nav.openMenu')}>
+          {expanded ? '▴' : '▾'}
+        </button>
       </div>
 
-      {enabled && expanded && viewSource && (
+      {expanded && (
         <div className="course-list">
+          {!enabled && courses.length > 0 && <p className="hint">{t('sidebar.previewHint')}</p>}
           {coursesQuery.isLoading && (
             <p className="hint">
               <span className="spinner" />{' '}
@@ -130,7 +125,7 @@ export function SourceBlock({
             </p>
           )}
           {!coursesQuery.isLoading && courses.length === 0 && <p className="hint">{t('sidebar.noCourses')}</p>}
-          {courses.length > 0 && (
+          {viewSource && courses.length > 0 && (
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="text-btn" onClick={selectAll}>
                 {t('sidebar.selectAll')}
@@ -141,16 +136,28 @@ export function SourceBlock({
             </div>
           )}
           {courses.map((c) => {
-            const visible = isCourseVisible(viewSource, c.key);
             const name = i18n.language === 'en' && c.nameEn ? c.nameEn : c.name;
-            return (
-              <label className="course-row" key={c.key}>
-                <input type="checkbox" checked={visible} onChange={() => updateViewSource(toggleCourse(viewSource, c.key))} />
+            const label = (
+              <>
                 <span className="course-dot" style={{ background: colorForCourse(c.key, settings.colors) }} />
                 <span className="course-name" title={name}>
                   {name}
                   {c.partition ? ` - ${c.partition}` : ''}
                 </span>
+              </>
+            );
+            if (!viewSource) {
+              return (
+                <div className="course-row" key={c.key}>
+                  {label}
+                </div>
+              );
+            }
+            const visible = isCourseVisible(viewSource, c.key);
+            return (
+              <label className="course-row" key={c.key}>
+                <input type="checkbox" checked={visible} onChange={() => updateViewSource(toggleCourse(viewSource, c.key))} />
+                {label}
               </label>
             );
           })}

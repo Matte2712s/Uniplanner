@@ -123,8 +123,10 @@ export function parseGroupPath(raw: string | null): string[] {
 
 /**
  * Inserts a default (config-seeded) source, or refreshes its title/group/program
- * if it already exists. Never touches a row that a user turned into a custom
- * source some other way - it only updates rows that are still 'default'.
+ * if it already exists. A config entry always wins: if the row already exists
+ * as a user-submitted custom source, this promotes it to default too, so a
+ * calendar stops showing as a pending submission once it's curated into the
+ * official config.
  */
 export function upsertDefaultSource(
   db: Db,
@@ -132,11 +134,9 @@ export function upsertDefaultSource(
 ): SourceRow {
   const existing = findSource(db, row.host, row.link_calendario_id);
   if (existing) {
-    if (existing.kind === 'default') {
-      db.prepare(
-        'UPDATE sources SET title = ?, title_en = ?, group_path = ?, program = ?, last_ok_at = datetime(\'now\') WHERE id = ?',
-      ).run(row.title, row.title_en, row.group_path, row.program, existing.id);
-    }
+    db.prepare(
+      "UPDATE sources SET kind = 'default', title = ?, title_en = ?, group_path = ?, program = ?, last_ok_at = datetime('now') WHERE id = ?",
+    ).run(row.title, row.title_en, row.group_path, row.program, existing.id);
     return findSource(db, row.host, row.link_calendario_id)!;
   }
   db.prepare(
@@ -500,4 +500,107 @@ export function saveCachedWeek(db: Db, sourceId: number, weekStart: string, even
     `INSERT INTO event_cache (source_id, week_start, payload, fetched_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(source_id, week_start) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
   ).run(sourceId, weekStart, JSON.stringify(events), Date.now());
+}
+
+export function adminCountUsers(db: Db): number {
+  const row = db.prepare('SELECT COUNT(*) as n FROM users').get() as { n: number };
+  return row.n;
+}
+
+export interface AdminUserRow {
+  id: number;
+  email: string;
+  name: string;
+  created_at: string;
+  picture_url: string | null;
+  view_count: number;
+  custom_source_count: number;
+}
+
+/** Every registered user, newest first, with cheap per-user counts via correlated subqueries. */
+export function adminListUsers(db: Db): AdminUserRow[] {
+  return db
+    .prepare(
+      `SELECT u.id, u.email, u.name, u.created_at, u.picture_url,
+         (SELECT COUNT(*) FROM views v WHERE v.user_id = u.id) as view_count,
+         (SELECT COUNT(*) FROM sources s WHERE s.created_by = u.id AND s.kind = 'custom') as custom_source_count
+       FROM users u
+       ORDER BY u.created_at DESC`,
+    )
+    .all() as unknown as AdminUserRow[];
+}
+
+export interface AdminCustomSourceRow extends SourceRow {
+  creator_email: string | null;
+  linked_user_count: number;
+}
+
+/** Every custom source across all users (not just one user's), newest-verified first. */
+export function adminListCustomSources(db: Db): AdminCustomSourceRow[] {
+  return db
+    .prepare(
+      `SELECT s.*, u.email as creator_email,
+         (SELECT COUNT(*) FROM user_sources us WHERE us.source_id = s.id) as linked_user_count
+       FROM sources s
+       LEFT JOIN users u ON u.id = s.created_by
+       WHERE s.kind = 'custom'
+       ORDER BY s.last_ok_at DESC`,
+    )
+    .all() as unknown as AdminCustomSourceRow[];
+}
+
+export interface AdminDefaultSourceRow extends SourceRow {
+  linked_user_count: number;
+}
+
+/** Every predefined (config-seeded or promoted) source, grouped for display by program then title. */
+export function adminListDefaultSources(db: Db): AdminDefaultSourceRow[] {
+  return db
+    .prepare(
+      `SELECT s.*,
+         (SELECT COUNT(*) FROM user_sources us WHERE us.source_id = s.id) as linked_user_count
+       FROM sources s
+       WHERE s.kind = 'default'
+       ORDER BY s.program IS NULL, s.program, s.title`,
+    )
+    .all() as unknown as AdminDefaultSourceRow[];
+}
+
+export function adminCountActiveSessions(db: Db): number {
+  const row = db.prepare('SELECT COUNT(*) as n FROM sessions WHERE expires_at > ?').get(Date.now()) as { n: number };
+  return row.n;
+}
+
+export interface EventCacheStats {
+  rowCount: number;
+  distinctSourceCount: number;
+  newestFetchedAt: number | null;
+}
+
+export function adminEventCacheStats(db: Db): EventCacheStats {
+  return db
+    .prepare(
+      `SELECT COUNT(*) as rowCount, COUNT(DISTINCT source_id) as distinctSourceCount, MAX(fetched_at) as newestFetchedAt
+       FROM event_cache`,
+    )
+    .get() as unknown as EventCacheStats;
+}
+
+/**
+ * Flips a custom source to default and assigns it a program, so it starts
+ * showing up via listPrograms/the program picker (a default source with no
+ * program is invisible - see listPrograms). The kind = 'custom' guard makes
+ * this a safe no-op against an already-default or missing id - it never
+ * un-defaults anything or double-applies.
+ */
+export function adminPromoteSourceToDefault(db: Db, sourceId: number, program: string): SourceRow | undefined {
+  const existing = getSourceById(db, sourceId);
+  if (!existing || existing.kind !== 'custom') return undefined;
+  db.prepare("UPDATE sources SET kind = 'default', program = ? WHERE id = ? AND kind = 'custom'").run(program, sourceId);
+  return getSourceById(db, sourceId);
+}
+
+/** Only place a custom source's last_ok_at is refreshed after creation - called after a live admin health probe succeeds. */
+export function adminMarkSourceChecked(db: Db, sourceId: number): void {
+  db.prepare("UPDATE sources SET last_ok_at = datetime('now') WHERE id = ?").run(sourceId);
 }
