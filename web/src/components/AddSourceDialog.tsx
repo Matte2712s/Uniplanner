@@ -34,13 +34,17 @@ export function AddSourceDialog({ onClose, onAdded }: { onClose: () => void; onA
 
   async function handleCheck() {
     setCheck({ status: 'checking' });
-    const result = await api.validateSource(url);
-    if (result.ok) {
-      setCheck({ status: 'valid', title: result.title });
-    } else {
-      const reason = 'reason' in result.error ? result.error.reason : undefined;
-      const key = reason ? `error.url.${reason}` : 'error.generic';
-      setCheck({ status: 'invalid', messageKey: key });
+    try {
+      const result = await api.validateSource(url);
+      if (result.ok) {
+        setCheck({ status: 'valid', title: result.title });
+      } else {
+        const reason = 'reason' in result.error ? result.error.reason : undefined;
+        const key = reason ? `error.url.${reason}` : 'error.generic';
+        setCheck({ status: 'invalid', messageKey: key });
+      }
+    } catch {
+      setCheck({ status: 'invalid', messageKey: 'error.generic' });
     }
   }
 
@@ -62,6 +66,8 @@ export function AddSourceDialog({ onClose, onAdded }: { onClose: () => void; onA
       } else {
         setCheck({ status: 'invalid', messageKey: 'error.generic' });
       }
+    } catch {
+      setCheck({ status: 'invalid', messageKey: 'error.generic' });
     } finally {
       setAdding(false);
     }

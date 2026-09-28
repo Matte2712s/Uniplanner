@@ -85,7 +85,9 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
     async (req, reply) => {
       const body = req.body as { url?: unknown };
       const result = await validateSourceUrl(db, body.url);
-      if (!result.ok) return reply.code(400).send({ ok: false, error: result.error });
+      // Failed validation is expected user input, not an HTTP error - keep status 200 so the
+      // client resolves the structured { ok: false, error } body instead of throwing.
+      if (!result.ok) return { ok: false, error: result.error };
       return { ok: true, host: result.host, title: result.title, titleEn: result.titleEn, url: result.canonicalUrl };
     },
   );
@@ -104,7 +106,8 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
       }
       const body = req.body as { url?: unknown };
       const result = await validateSourceUrl(db, body.url);
-      if (!result.ok) return reply.code(400).send({ ok: false, error: result.error });
+      // Same as /api/sources/validate - expected input error, keep status 200.
+      if (!result.ok) return { ok: false, error: result.error };
       const source = persistValidatedSource(db, result, user?.id ?? null);
       if (user) linkUserSource(db, user.id, source.id);
       return { ok: true, source: toDto(source, null) };

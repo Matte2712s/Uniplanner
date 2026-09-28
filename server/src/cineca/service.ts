@@ -42,10 +42,22 @@ export async function fetchCalendarInfo(host: string, linkCalendarioId: string, 
     throw new SourceUnavailableError(`Cannot reach calendar on ${host}: ${(err as Error).message}`);
   }
   const parsed = linkCalendarioSchema.safeParse(raw);
-  if (!parsed.success || !parsed.data.payload.titolo) {
-    throw new SourceUnavailableError(`Calendar not found on ${host}`);
+  if (!parsed.success) throw new SourceUnavailableError(`Calendar not found on ${host}`);
+
+  const { payload } = parsed.data;
+  if (payload.titolo) return { title: payload.titolo, titleEn: payload.titolo_EN ?? null };
+
+  // Personal "libretto studente" link: synthesize a title from course/track/year.
+  if (payload.cdaCorso) {
+    const track = [payload.cdaCorso, payload.cdaPercorso].filter(Boolean).join('/');
+    const year = payload.annoCorso;
+    return {
+      title: `Libretto studente - ${track}${year ? ` - Anno ${year}` : ''}`,
+      titleEn: `Student timetable - ${track}${year ? ` - Year ${year}` : ''}`,
+    };
   }
-  return { title: parsed.data.payload.titolo, titleEn: parsed.data.payload.titolo_EN ?? null };
+
+  throw new SourceUnavailableError(`Calendar not found on ${host}`);
 }
 
 function mondayUtc(date: Date): Date {

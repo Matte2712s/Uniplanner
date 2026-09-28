@@ -16,6 +16,11 @@ export const linkCalendarioSchema = z.object({
   payload: z.object({
     titolo: nstr(300),
     titolo_EN: nstr(300),
+    // "libretto_studente" links (a student's personal timetable) carry no
+    // titolo - just the course of study/track/year they were built for.
+    cdaCorso: nstr(64),
+    cdaPercorso: nstr(64),
+    annoCorso: nstr(16),
   }),
 });
 
