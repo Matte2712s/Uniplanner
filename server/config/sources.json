@@ -34,7 +34,12 @@
   {
     "program": "Lingue e culture per il turismo",
     "children": [
-      { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "6a735bfaa81d86006388303f", "title": "Lingue e culture per il turismo" }
+      {
+        "folder": "Primo anno",
+        "children": [
+          { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "6a735bfaa81d86006388303f", "title": "Lingue e culture per il turismo"  }
+        ]
+      }
     ]
   }
 ]
