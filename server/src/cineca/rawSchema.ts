@@ -21,6 +21,10 @@ export const linkCalendarioSchema = z.object({
     cdaCorso: nstr(64),
     cdaPercorso: nstr(64),
     annoCorso: nstr(16),
+    // Per-insegnamento links carry only activity codes
+    codiciAF: z.array(z.string().max(32)).max(20).optional().catch(undefined),
+    // Event-based links carry only event ids
+    eventiId: z.array(z.string().max(64)).max(500).optional().catch(undefined),
   }),
 });
 

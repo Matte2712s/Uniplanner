@@ -1,0 +1,11 @@
+Run from the repo root.
+
+npm run crawl -w server -- "https://filosofia.campusnet.unito.it/do/corsi.pl/Search?title=Corsi%20e%20moduli" --program "Filosofia" --out filosofia.json
+
+Notes
+- Several listing urls can be passed; results are merged.
+- --program sets the program name. Without it, the "Corso di studio" field is used.
+- --out is relative to server/ when run with -w server. Without it, JSON goes to stdout.
+- Paste the output into server/config/sources.json and restart the server.
+
+- The link should point to the general insegnamenti page listing the single insegnamenti links

@@ -1,4 +1,4 @@
-import type { ViewSettings } from '@planner/shared';
+import type { CourseDto, ViewSettings } from '@planner/shared';
 import { collectSubtreeIds, defaultViewSettings } from '@planner/shared';
 import { tx, type Db } from './index.ts';
 
@@ -500,6 +500,25 @@ export function saveCachedWeek(db: Db, sourceId: number, weekStart: string, even
     `INSERT INTO event_cache (source_id, week_start, payload, fetched_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(source_id, week_start) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
   ).run(sourceId, weekStart, JSON.stringify(events), Date.now());
+}
+
+export function getCachedCourses(db: Db, sourceId: number, ttlMs: number): CourseDto[] | undefined {
+  const row = db.prepare('SELECT payload, fetched_at FROM course_cache WHERE source_id = ?').get(sourceId) as
+    | { payload: string; fetched_at: number }
+    | undefined;
+  if (!row || Date.now() - row.fetched_at > ttlMs) return undefined;
+  try {
+    return JSON.parse(row.payload) as CourseDto[];
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveCachedCourses(db: Db, sourceId: number, courses: CourseDto[]): void {
+  db.prepare(
+    `INSERT INTO course_cache (source_id, payload, fetched_at) VALUES (?, ?, ?)
+     ON CONFLICT(source_id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
+  ).run(sourceId, JSON.stringify(courses), Date.now());
 }
 
 export function adminCountUsers(db: Db): number {

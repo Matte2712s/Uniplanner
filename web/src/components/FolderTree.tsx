@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FolderDto, SourceDto, ViewSettings } from '@planner/shared';
 import type { FolderTreeNode } from '@planner/shared';
+import { FolderSearch } from './FolderSearch.tsx';
 import { SourceBlock } from './SourceBlock.tsx';
-import { IconFolder, IconGripVertical, IconPencil, IconPlus, IconTrash } from './icons.tsx';
+import { IconFolder, IconGripVertical, IconPencil, IconPlus, IconSearch, IconTrash } from './icons.tsx';
 
 export interface FolderTreeCallbacks {
   settings: ViewSettings;
@@ -14,6 +15,11 @@ export interface FolderTreeCallbacks {
   onRename: (folderId: number, currentName: string) => void;
   onNewSubfolder: (parentId: number) => void;
   onDeleteRequest: (folder: FolderDto) => void;
+}
+
+// All sources in a folder and its subfolders
+function collectSources(node: FolderTreeNode<FolderDto>, sourcesByFolder: Map<number, SourceDto[]>): SourceDto[] {
+  return [...(sourcesByFolder.get(node.folder.id) ?? []), ...node.children.flatMap((c) => collectSources(c, sourcesByFolder))];
 }
 
 function FolderNodeItem({
@@ -37,6 +43,7 @@ function FolderNodeItem({
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder-drop-${folder.id}` });
 
   const items = sourcesByFolder.get(folder.id) ?? [];
+  const [searching, setSearching] = useState(false);
 
   return (
     <div className="source-folder" style={{ opacity: isDragging ? 0.4 : 1 }}>
@@ -54,6 +61,14 @@ function FolderNodeItem({
           <button className="icon-btn icon-btn-sm" title={t('folders.newSubfolder')} onClick={() => callbacks.onNewSubfolder(folder.id)}>
             <IconPlus />
           </button>
+          <button
+            className={`icon-btn icon-btn-sm${searching ? ' active' : ''}`}
+            title={t('folders.search')}
+            aria-pressed={searching}
+            onClick={() => setSearching((v) => !v)}
+          >
+            <IconSearch />
+          </button>
           <button className="icon-btn icon-btn-sm" title={t('folders.rename')} onClick={() => callbacks.onRename(folder.id, folder.name)}>
             <IconPencil />
           </button>
@@ -62,6 +77,7 @@ function FolderNodeItem({
           </button>
         </div>
       </div>
+      {searching && <FolderSearch sources={collectSources(node, sourcesByFolder)} settings={callbacks.settings} onChange={callbacks.onChange} />}
       {open && (
         <div className="source-folder-body">
           {items.map((s) => (

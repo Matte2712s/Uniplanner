@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SourceDto, ViewSettings, ViewSource } from '@planner/shared';
@@ -9,10 +9,27 @@ import { colorForCourse } from '../lib/color.ts';
 import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { IconGripVertical, IconPencil, IconTrash } from './icons.tsx';
 
-const COURSES_FROM = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
-const COURSES_TO = new Date(Date.now() + 280 * 24 * 60 * 60 * 1000).toISOString();
+// Server keeps course lists 7 days; hold them for an hour client side
+export const COURSES_STALE_MS = 60 * 60_000;
 
-function toggleCourse(viewSource: ViewSource, key: string): ViewSource {
+// Single timestamp: the range is exactly the server max (400 days), so two
+// Date.now() calls a millisecond apart would get a permanent 400 until reload
+const COURSES_NOW = Date.now();
+export const COURSES_FROM = new Date(COURSES_NOW - 120 * 24 * 60 * 60 * 1000).toISOString();
+export const COURSES_TO = new Date(COURSES_NOW + 280 * 24 * 60 * 60 * 1000).toISOString();
+
+// Accent-insensitive, case-insensitive text for matching
+export function normalizeSearch(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// Force the server to rebuild a source's course list, then update the shared query cache
+export async function refreshCourses(queryClient: QueryClient, sourceId: number): Promise<void> {
+  const data = await api.sourceCourses(sourceId, COURSES_FROM, COURSES_TO, true);
+  queryClient.setQueryData(['courses', sourceId], data);
+}
+
+export function toggleCourse(viewSource: ViewSource, key: string): ViewSource {
   const visible = isCourseVisible(viewSource, key);
   const has = viewSource.courses.includes(key);
   if (viewSource.courseMode === 'exclude') {
@@ -38,6 +55,7 @@ export function SourceBlock({
 }) {
   const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [search, setSearch] = useState('');
   const viewSource = settings.sources.find((s) => s.sourceId === source.id);
   const enabled = Boolean(viewSource);
 
@@ -50,10 +68,25 @@ export function SourceBlock({
     queryKey: ['courses', source.id],
     queryFn: () => api.sourceCourses(source.id, COURSES_FROM, COURSES_TO),
     enabled: expanded,
-    staleTime: 10 * 60_000,
+    staleTime: COURSES_STALE_MS,
     retry: CINECA_QUERY_RETRY,
     retryDelay: cinecaRetryDelay,
   });
+
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  async function refresh() {
+    setRefreshing(true);
+    setRefreshFailed(false);
+    try {
+      await refreshCourses(queryClient, source.id);
+    } catch {
+      setRefreshFailed(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   function setEnabled(next: boolean) {
     if (next) {
@@ -76,7 +109,11 @@ export function SourceBlock({
   }
 
   const title = source.displayName || (i18n.language === 'en' ? source.titleEn || source.title : source.title);
-  const courses = coursesQuery.data?.courses ?? [];
+  const allCourses = coursesQuery.data?.courses ?? [];
+  const query = normalizeSearch(search.trim());
+  const courses = query
+    ? allCourses.filter((c) => normalizeSearch(`${c.name} ${c.nameEn ?? ''} ${c.partition ?? ''}`).includes(query))
+    : allCourses;
   const groupLabel = source.groupPath.length > 0 ? source.groupPath.join(' - ') : null;
 
   return (
@@ -124,17 +161,35 @@ export function SourceBlock({
               </button>
             </p>
           )}
+          {allCourses.length > 0 && (
+            <input
+              type="search"
+              className="course-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('sidebar.searchCourses')}
+              aria-label={t('sidebar.searchCourses')}
+            />
+          )}
           {!coursesQuery.isLoading && courses.length === 0 && <p className="hint">{t('sidebar.noCourses')}</p>}
-          {viewSource && courses.length > 0 && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="text-btn" onClick={selectAll}>
-                {t('sidebar.selectAll')}
-              </button>
-              <button className="text-btn" onClick={selectNone}>
-                {t('sidebar.selectNone')}
+          {allCourses.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {viewSource && (
+                <>
+                  <button className="text-btn" onClick={selectAll}>
+                    {t('sidebar.selectAll')}
+                  </button>
+                  <button className="text-btn" onClick={selectNone}>
+                    {t('sidebar.selectNone')}
+                  </button>
+                </>
+              )}
+              <button className="text-btn" style={{ marginLeft: 'auto' }} title={t('sidebar.refreshHint')} onClick={() => void refresh()} disabled={refreshing}>
+                {refreshing && <span className="spinner" />} {t('sidebar.refreshCourses')}
               </button>
             </div>
           )}
+          {refreshFailed && <p className="error-text">{t('sidebar.refreshError')}</p>}
           {courses.map((c) => {
             const name = i18n.language === 'en' && c.nameEn ? c.nameEn : c.name;
             const label = (

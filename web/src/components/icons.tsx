@@ -63,6 +63,15 @@ export function IconPencil(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function IconSearch(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M10.5 10.5L14 14" />
+    </Svg>
+  );
+}
+
 export function IconCopy(props: SVGProps<SVGSVGElement>) {
   return (
     <Svg {...props}>

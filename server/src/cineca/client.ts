@@ -42,6 +42,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Global cap on in-flight upstream requests, whatever the number of users or
+// sources loading: Cineca starts failing when hit with too many at once
+const MAX_CONCURRENT_UPSTREAM = 6;
+let inFlight = 0;
+const waiting: Array<() => void> = [];
+
+async function withUpstreamSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (inFlight >= MAX_CONCURRENT_UPSTREAM) await new Promise<void>((resolve) => waiting.push(resolve));
+  else inFlight += 1;
+  try {
+    return await fn();
+  } finally {
+    // Hand the slot straight to the next waiter, else free it
+    const next = waiting.shift();
+    if (next) next();
+    else inFlight -= 1;
+  }
+}
+
 // A blocked address or an oversized body will fail the same way every time;
 // only a slow/flaky upstream response is worth retrying.
 function isRetryable(err: unknown): boolean {
@@ -72,7 +91,7 @@ export async function fetchCinecaJson(
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await fetchCinecaJsonAttempt(host, urlPath, init);
+      return await withUpstreamSlot(() => fetchCinecaJsonAttempt(host, urlPath, init));
     } catch (err) {
       lastErr = err;
       if (attempt === MAX_ATTEMPTS - 1 || !isRetryable(err)) throw err;

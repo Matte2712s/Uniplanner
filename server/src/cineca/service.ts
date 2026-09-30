@@ -8,6 +8,7 @@ import { normalizeEvent } from './normalize.ts';
 const HOST_TTL_MS = 24 * 60 * 60 * 1000;
 const WEEK_TTL_MS = 30 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEK_FETCH_CONCURRENCY = 6;
 
 export class SourceUnavailableError extends Error {}
 
@@ -57,6 +58,16 @@ export async function fetchCalendarInfo(host: string, linkCalendarioId: string, 
     };
   }
 
+  // Per-insegnamento link: synthesize a title from the activity codes
+  const codes = (payload.codiciAF ?? []).map((c) => c.trim().toUpperCase()).filter(Boolean);
+  if (codes.length) {
+    const list = codes.join(', ');
+    return { title: `Insegnamento ${list}`, titleEn: `Course ${list}` };
+  }
+
+  // Event-based link: no usable name, config or the user supplies one
+  if (payload.eventiId?.length) return { title: 'Calendario insegnamento', titleEn: 'Course calendar' };
+
   throw new SourceUnavailableError(`Calendar not found on ${host}`);
 }
 
@@ -104,20 +115,50 @@ export interface EventSource {
 }
 
 /** Loads events for one source across [from, to), cached in whole weeks. */
-export async function getEventsForSource(db: Db, source: EventSource, from: Date, to: Date): Promise<CalendarEventDto[]> {
+export async function getEventsForSource(
+  db: Db,
+  source: EventSource,
+  from: Date,
+  to: Date,
+  forceRefresh = false,
+): Promise<CalendarEventDto[]> {
   const clienteId = await getClienteId(db, source.host);
   const events: CalendarEventDto[] = [];
   const seen = new Set<string>();
 
-  let cursor = mondayUtc(from);
-  while (cursor < to) {
-    const weekKey = cursor.toISOString();
-    let raw = getCachedWeek(db, source.id, weekKey, WEEK_TTL_MS);
-    if (!raw) {
-      raw = await fetchWeek(source.host, source.linkCalendarioId, clienteId, cursor);
-      saveCachedWeek(db, source.id, weekKey, raw);
-    }
-    for (const item of raw) {
+  const weeks: Date[] = [];
+  for (let cursor = mondayUtc(from); cursor < to; cursor = new Date(cursor.getTime() + WEEK_MS)) weeks.push(cursor);
+
+  // Long ranges (course lists) span ~58 weeks; fetch uncached ones in small
+  // parallel batches. Each week is cached as it lands so a retry after a
+  // failure resumes instead of starting over.
+  const weekData = new Map<string, unknown[]>();
+  const missing: Date[] = [];
+  for (const week of weeks) {
+    const cached = forceRefresh ? undefined : getCachedWeek(db, source.id, week.toISOString(), WEEK_TTL_MS);
+    if (cached) weekData.set(week.toISOString(), cached);
+    else missing.push(week);
+  }
+  for (let i = 0; i < missing.length; i += WEEK_FETCH_CONCURRENCY) {
+    const batch = missing.slice(i, i + WEEK_FETCH_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((week) => fetchWeek(source.host, source.linkCalendarioId, clienteId, week)),
+    );
+    let failure: unknown;
+    results.forEach((res, idx) => {
+      if (res.status === 'fulfilled') {
+        const key = batch[idx]!.toISOString();
+        saveCachedWeek(db, source.id, key, res.value);
+        weekData.set(key, res.value);
+      } else {
+        failure ??= res.reason;
+      }
+    });
+    if (failure) throw failure;
+  }
+
+  for (const week of weeks) {
+    for (const item of weekData.get(week.toISOString()) ?? []) {
       const parsed = impegniResponseSchema.element.safeParse(item);
       if (!parsed.success) continue;
       const ev = normalizeEvent(source.id, parsed.data);
@@ -125,7 +166,6 @@ export async function getEventsForSource(db: Db, source: EventSource, from: Date
       seen.add(ev.id);
       if (new Date(ev.start) < to && new Date(ev.end) > from) events.push(ev);
     }
-    cursor = new Date(cursor.getTime() + WEEK_MS);
   }
 
   events.sort((a, b) => a.start.localeCompare(b.start));

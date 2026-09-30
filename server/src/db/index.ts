@@ -113,6 +113,14 @@ const migrations: string[] = [
   ALTER TABLE views ADD COLUMN share_token TEXT;
   CREATE UNIQUE INDEX views_share_token ON views(share_token) WHERE share_token IS NOT NULL;
   `,
+  // Derived course list per source, cached long: rebuilding it costs ~58 upstream weekly fetches
+  `
+  CREATE TABLE course_cache (
+    source_id INTEGER PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+    payload TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export type Db = DatabaseSync;
