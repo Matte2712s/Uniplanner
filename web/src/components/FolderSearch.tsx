@@ -31,27 +31,29 @@ export function FolderSearch({
   // Same query key as SourceBlock so results are shared. Each source costs ~58
   // upstream requests, so only a few load at once or Cineca starts failing.
   // Query i is enabled while fewer than LOAD_CONCURRENCY earlier ones are unsettled.
-  const settled = useRef<boolean[]>([]);
+  // Settled state comes from the cache, not the last render, so the first render is limited too.
+  const queryClient = useQueryClient();
+  let unsettledBefore = 0;
   const queries = useQueries({
-    queries: sources.map((s, i) => {
-      const inFlight = settled.current.slice(0, i).filter((done) => !done).length;
+    queries: sources.map((s) => {
+      const state = queryClient.getQueryState(['courses', s.id]);
+      const enabled = unsettledBefore < LOAD_CONCURRENCY;
+      if (!state || state.status === 'pending') unsettledBefore += 1;
       return {
         queryKey: ['courses', s.id],
         queryFn: () => api.sourceCourses(s.id, COURSES_FROM, COURSES_TO),
-        enabled: inFlight < LOAD_CONCURRENCY,
+        enabled,
         staleTime: COURSES_STALE_MS,
         retry: CINECA_QUERY_RETRY,
         retryDelay: cinecaRetryDelay,
       };
     }),
   });
-  settled.current = queries.map((q) => q.status !== 'pending');
   const done = queries.filter((q) => q.status === 'success').length;
   const loading = queries.some((q) => q.status === 'pending');
   const failed = queries.filter((q) => q.isError).length;
 
   // Rebuild every source in the folder, LOAD_CONCURRENCY at a time
-  const queryClient = useQueryClient();
   const [refreshProgress, setRefreshProgress] = useState<{ done: number; failed: number } | null>(null);
   async function refreshAll() {
     const progress = { done: 0, failed: 0 };

@@ -21,6 +21,8 @@ export const env = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
   databasePath: path.resolve(projectRoot, process.env.DATABASE_PATH || './data/planner.db'),
   devLogin: !isProd && process.env.DEV_LOGIN === 'true',
+  // Background course list refresh: on in production, opt-in elsewhere so dev restarts don't crawl Cineca
+  warmCourses: process.env.WARM_COURSES ? process.env.WARM_COURSES === 'true' : isProd,
   sourcesConfigPath: path.resolve(serverRoot, 'config/sources.json'),
   webDist: path.resolve(projectRoot, 'web/dist'),
 };

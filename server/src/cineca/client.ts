@@ -1,6 +1,8 @@
-import { Agent, request } from 'undici';
+import type { LookupFunction, Socket } from 'node:net';
+import { Agent, buildConnector, request } from 'undici';
 import { isCinecaHost } from '@planner/shared';
-import { resolvePublic, SsrfError } from './ssrf.ts';
+import { createLimiter } from '../limiter.ts';
+import { resolvePublic, SsrfError, type ResolvedHost } from './ssrf.ts';
 
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
@@ -8,32 +10,52 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 400;
 const RETRY_MAX_MS = 3_000;
 
-class PinnedAgent extends Agent {
-  constructor(pin: Map<string, string>) {
-    super({
-      connect: {
-        // Node's net/tls connect (with autoSelectFamily, on by default) calls
-        // this with { all: true } for Happy Eyeballs and expects an array
-        // back; passing only the single-address 3-arg form here silently
-        // produces address=undefined downstream (ERR_INVALID_IP_ADDRESS).
-        lookup: (hostname, options, callback) => {
-          const address = pin.get(hostname);
-          const cb = typeof options === 'function' ? options : callback;
-          const wantsAll = typeof options === 'object' && options !== null && 'all' in options && options.all;
-          if (!address) {
-            cb(new SsrfError(`Unpinned host ${hostname}`), wantsAll ? [] : '', 0);
-            return;
-          }
-          const family = address.includes(':') ? 6 : 4;
-          if (wantsAll) {
-            cb(null, [{ address, family }]);
-          } else {
-            cb(null, address, family);
-          }
-        },
-      },
-    });
-  }
+// Every address resolvePublic verified as public, per host. Pinning all of them
+// (not just one) lets Node's connect race them, so a dead address in Cineca's DNS
+// round-robin costs a fraction of a second instead of a full connect timeout.
+export function pinnedLookup(pin: Map<string, ResolvedHost[]>): LookupFunction {
+  return (hostname, options, callback) => {
+    const addresses = pin.get(hostname);
+    const cb = typeof options === 'function' ? options : callback;
+    // Node's net/tls connect (with autoSelectFamily) calls this with { all: true }
+    // for Happy Eyeballs and expects an array back; the single-address 3-arg form
+    // is only for callers that did not ask for all.
+    const wantsAll = typeof options === 'object' && options !== null && 'all' in options && options.all;
+    if (!addresses?.length) {
+      cb(new SsrfError(`Unpinned host ${hostname}`), wantsAll ? [] : '', 0);
+      return;
+    }
+    if (wantsAll) {
+      cb(null, addresses.map(({ address, family }) => ({ address, family })));
+    } else {
+      cb(null, addresses[0]!.address, addresses[0]!.family);
+    }
+  };
+}
+
+// Address that last connected, per host. Tried first next time, so a dead
+// address early in the DNS list costs nothing; it self-heals if this one dies.
+const lastGoodAddress = new Map<string, string>();
+
+export function preferLastGood(host: string, resolved: ResolvedHost[]): ResolvedHost[] {
+  const first = resolved.find((r) => r.address === lastGoodAddress.get(host));
+  return first ? [first, ...resolved.filter((r) => r !== first)] : resolved;
+}
+
+export function createPinnedAgent(host: string, resolved: ResolvedHost[]): Agent {
+  const connector = buildConnector({
+    lookup: pinnedLookup(new Map([[host, preferLastGood(host, resolved)]])),
+    autoSelectFamily: true,
+  });
+  return new Agent({
+    connect: (opts, callback) =>
+      connector(opts, (...args) => {
+        const [err, socket] = args;
+        const address = err ? undefined : (socket as Socket).remoteAddress;
+        if (address) lastGoodAddress.set(host, address);
+        callback(...args);
+      }),
+  });
 }
 
 export class CinecaFetchError extends Error {}
@@ -45,21 +67,7 @@ function sleep(ms: number): Promise<void> {
 // Global cap on in-flight upstream requests, whatever the number of users or
 // sources loading: Cineca starts failing when hit with too many at once
 const MAX_CONCURRENT_UPSTREAM = 6;
-let inFlight = 0;
-const waiting: Array<() => void> = [];
-
-async function withUpstreamSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (inFlight >= MAX_CONCURRENT_UPSTREAM) await new Promise<void>((resolve) => waiting.push(resolve));
-  else inFlight += 1;
-  try {
-    return await fn();
-  } finally {
-    // Hand the slot straight to the next waiter, else free it
-    const next = waiting.shift();
-    if (next) next();
-    else inFlight -= 1;
-  }
-}
+const withUpstreamSlot = createLimiter(MAX_CONCURRENT_UPSTREAM);
 
 // A blocked address or an oversized body will fail the same way every time;
 // only a slow/flaky upstream response is worth retrying.
@@ -107,8 +115,7 @@ async function fetchCinecaJsonAttempt(
   init: { method: 'GET' | 'POST'; query?: Record<string, string>; body?: unknown },
 ): Promise<unknown> {
   const resolved = await resolvePublic(host);
-  const pin = new Map(resolved.map((r) => [host, r.address] as const));
-  const agent = new PinnedAgent(pin);
+  const agent = createPinnedAgent(host, resolved);
 
   const url = new URL(`https://${host}${urlPath}`);
   if (init.query) {
@@ -129,6 +136,9 @@ async function fetchCinecaJsonAttempt(
       // No redirect interceptor is attached, so undici never follows
       // redirects here; a 3xx is treated like any other bad status below.
     });
+
+    // A destroyed body emits 'error'; unhandled, that crashes the process
+    res.body.on('error', () => {});
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
       res.body.destroy();

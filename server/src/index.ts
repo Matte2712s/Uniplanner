@@ -18,6 +18,7 @@ import { registerSourceRoutes } from './routes/sources.ts';
 import { registerViewRoutes } from './routes/views.ts';
 import { registerPrefsRoutes } from './routes/prefs.ts';
 import { registerEventRoutes } from './routes/events.ts';
+import { startCourseWarmer } from './courseWarmer.ts';
 import { seedDefaultSources } from './seed.ts';
 
 declare module 'node:http' {
@@ -125,6 +126,11 @@ if (!googleEnabled) {
 purgeExpiredSessions(db);
 setInterval(() => purgeExpiredSessions(db), 60 * 60 * 1000).unref();
 
-await seedDefaultSources(db, app.log);
-
 await app.listen({ port: env.port, host: env.host });
+
+// Seed after listen: slow seeding must not fail the healthcheck and trigger autoheal restarts
+void seedDefaultSources(db, app.log)
+  .catch((err) => app.log.error({ err }, 'default source seeding failed'))
+  .then(() => {
+    if (env.warmCourses) startCourseWarmer(db, app.log);
+  });

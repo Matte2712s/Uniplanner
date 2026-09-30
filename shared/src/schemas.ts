@@ -10,6 +10,10 @@ export const MAX_RANGE_DAYS = 45;
 // Course discovery needs a much wider window (a full academic year) than
 // any single calendar view render, but it must still be bounded.
 export const MAX_COURSES_RANGE_DAYS = 400;
+// Course list window around now. The client request and the server warmer must
+// match, and lookback + lookahead must not exceed MAX_COURSES_RANGE_DAYS.
+export const COURSES_LOOKBACK_DAYS = 120;
+export const COURSES_LOOKAHEAD_DAYS = 280;
 // A custom source's last_ok_at older than this (or never set) is flagged stale in the admin dashboard.
 export const ADMIN_STALE_SOURCE_DAYS = 30;
 

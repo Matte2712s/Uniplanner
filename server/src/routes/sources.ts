@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { CourseDto, FolderDto, ProgramDto, SourceDto } from '@planner/shared';
+import type { FolderDto, ProgramDto, SourceDto } from '@planner/shared';
 import {
   canonicalCalendarUrl,
   MAX_COURSES_RANGE_DAYS,
@@ -10,7 +10,6 @@ import {
 import type { Db } from '../db/index.ts';
 import {
   countUserCustomSources,
-  getCachedCourses,
   getSourceById,
   getUserFolder,
   linkedDefaultSources,
@@ -21,7 +20,6 @@ import {
   listUserSourceNames,
   parseGroupPath,
   renameUserSource,
-  saveCachedCourses,
   setSourcePlacement,
   unlinkUserSource,
   userCanAccessSource,
@@ -31,13 +29,9 @@ import {
   type SourceRow,
 } from '../db/repo.ts';
 import { currentUser } from '../auth/session.ts';
+import { loadCourses } from '../courses.ts';
 import { validateSourceUrl, persistValidatedSource } from '../sources/validate.ts';
-import { coursesFromEvents } from '../cineca/normalize.ts';
-import { getEventsForSource, SourceUnavailableError } from '../cineca/service.ts';
-
-const COURSES_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const COURSES_REFRESH_MIN_AGE_MS = 60 * 1000;
-const coursesBuilds = new Map<string, Promise<CourseDto[]>>();
+import { SourceUnavailableError } from '../cineca/service.ts';
 
 function toDto(row: SourceRow, folderId: number | null, displayName: string | null = null): SourceDto {
   return {
@@ -179,31 +173,9 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
       return reply.code(400).send({ error: 'invalid_range' });
     }
 
-    // Refresh bypasses the long cache, but a very recent entry still wins to blunt abuse
     const refresh = (req.query as { refresh?: string }).refresh === '1';
-    const cached = getCachedCourses(db, source.id, refresh ? COURSES_REFRESH_MIN_AGE_MS : COURSES_TTL_MS);
-    if (cached) return { courses: cached };
-
     try {
-      // Share one build between concurrent requests for the same source
-      const key = `${source.id}:${refresh}`;
-      let build = coursesBuilds.get(key);
-      if (!build) {
-        build = (async () => {
-          const events = await getEventsForSource(
-            db,
-            { id: source.id, host: source.host, linkCalendarioId: source.link_calendario_id },
-            from,
-            to,
-            refresh,
-          );
-          const built: CourseDto[] = coursesFromEvents(source.id, events);
-          saveCachedCourses(db, source.id, built);
-          return built;
-        })().finally(() => coursesBuilds.delete(key));
-        coursesBuilds.set(key, build);
-      }
-      return { courses: await build };
+      return { courses: await loadCourses(db, source, { from, to, refresh }, req.log) };
     } catch (err) {
       if (err instanceof SourceUnavailableError) return reply.code(502).send({ error: err.message });
       throw err;

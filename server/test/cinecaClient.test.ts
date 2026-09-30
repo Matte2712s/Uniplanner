@@ -26,6 +26,7 @@ function jsonResponse(statusCode: number, data: unknown) {
       [Symbol.asyncIterator]: async function* () {
         yield chunk;
       },
+      on: vi.fn(),
       destroy: vi.fn(),
     },
   };
@@ -62,6 +63,19 @@ describe('fetchCinecaJson retry', () => {
     expect(requestMock).toHaveBeenCalledTimes(3);
   });
 
+  it('listens for body errors before destroying a rejected response', async () => {
+    // A destroyed undici body emits 'error'; with no listener the process crashes
+    const res = jsonResponse(503, {});
+    requestMock.mockResolvedValue(res);
+
+    const promise = fetchCinecaJson(HOST, '/api/x', { method: 'GET' });
+    const assertion = expect(promise).rejects.toBeInstanceOf(CinecaFetchError);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(res.body.on).toHaveBeenCalledWith('error', expect.any(Function));
+    expect(res.body.on.mock.invocationCallOrder[0]).toBeLessThan(res.body.destroy.mock.invocationCallOrder[0]!);
+  });
+
   it('does not retry when the resolved address fails the SSRF check', async () => {
     resolvePublicMock.mockRejectedValue(new SsrfError('Refusing non-public address'));
 
@@ -81,6 +95,7 @@ describe('fetchCinecaJson retry', () => {
         [Symbol.asyncIterator]: async function* () {
           yield big;
         },
+        on: vi.fn(),
         destroy: vi.fn(),
       },
     });

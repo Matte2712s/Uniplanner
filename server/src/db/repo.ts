@@ -502,16 +502,26 @@ export function saveCachedWeek(db: Db, sourceId: number, weekStart: string, even
   ).run(sourceId, weekStart, JSON.stringify(events), Date.now());
 }
 
-export function getCachedCourses(db: Db, sourceId: number, ttlMs: number): CourseDto[] | undefined {
+/** Cached course list with its build time; age policy is left to the caller. */
+export function getCachedCourses(db: Db, sourceId: number): { courses: CourseDto[]; fetchedAt: number } | undefined {
   const row = db.prepare('SELECT payload, fetched_at FROM course_cache WHERE source_id = ?').get(sourceId) as
     | { payload: string; fetched_at: number }
     | undefined;
-  if (!row || Date.now() - row.fetched_at > ttlMs) return undefined;
+  if (!row) return undefined;
   try {
-    return JSON.parse(row.payload) as CourseDto[];
+    return { courses: JSON.parse(row.payload) as CourseDto[], fetchedAt: row.fetched_at };
   } catch {
     return undefined;
   }
+}
+
+/** Build time per source id, without loading the payloads. */
+export function courseCacheBuildTimes(db: Db): Map<number, number> {
+  const rows = db.prepare('SELECT source_id, fetched_at FROM course_cache').all() as unknown as Array<{
+    source_id: number;
+    fetched_at: number;
+  }>;
+  return new Map(rows.map((r) => [r.source_id, r.fetched_at]));
 }
 
 export function saveCachedCourses(db: Db, sourceId: number, courses: CourseDto[]): void {

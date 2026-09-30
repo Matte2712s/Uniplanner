@@ -3,20 +3,21 @@ import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-quer
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SourceDto, ViewSettings, ViewSource } from '@planner/shared';
-import { isCourseVisible } from '@planner/shared';
+import { COURSES_LOOKAHEAD_DAYS, COURSES_LOOKBACK_DAYS, isCourseVisible } from '@planner/shared';
 import { api } from '../api/client.ts';
 import { colorForCourse } from '../lib/color.ts';
 import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { IconGripVertical, IconPencil, IconTrash } from './icons.tsx';
 
-// Server keeps course lists 7 days; hold them for an hour client side
+// Server keeps course lists fresh ~7 days and refreshes them in the background; hold them for an hour client side
 export const COURSES_STALE_MS = 60 * 60_000;
 
 // Single timestamp: the range is exactly the server max (400 days), so two
 // Date.now() calls a millisecond apart would get a permanent 400 until reload
+const DAY_MS = 24 * 60 * 60 * 1000;
 const COURSES_NOW = Date.now();
-export const COURSES_FROM = new Date(COURSES_NOW - 120 * 24 * 60 * 60 * 1000).toISOString();
-export const COURSES_TO = new Date(COURSES_NOW + 280 * 24 * 60 * 60 * 1000).toISOString();
+export const COURSES_FROM = new Date(COURSES_NOW - COURSES_LOOKBACK_DAYS * DAY_MS).toISOString();
+export const COURSES_TO = new Date(COURSES_NOW + COURSES_LOOKAHEAD_DAYS * DAY_MS).toISOString();
 
 // Accent-insensitive, case-insensitive text for matching
 export function normalizeSearch(s: string): string {

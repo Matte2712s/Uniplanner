@@ -12,6 +12,9 @@ const WEEK_FETCH_CONCURRENCY = 6;
 
 export class SourceUnavailableError extends Error {}
 
+// Every week of a fetch batch failed: the calendar (or Cineca) is down, not briefly flaky
+export class SourceDownError extends SourceUnavailableError {}
+
 export async function getClienteId(db: Db, host: string): Promise<string> {
   const cached = getHostClienteId(db, host, HOST_TTL_MS);
   if (cached) return cached;
@@ -154,7 +157,10 @@ export async function getEventsForSource(
         failure ??= res.reason;
       }
     });
-    if (failure) throw failure;
+    if (failure) {
+      const allFailed = results.every((res) => res.status === 'rejected');
+      throw allFailed ? new SourceDownError(failure instanceof Error ? failure.message : 'Cannot load events') : failure;
+    }
   }
 
   for (const week of weeks) {
