@@ -39,7 +39,7 @@
   "sidebar.addSource": "Add source",
   "sidebar.noCourses": "No courses found",
   "sidebar.searchCourses": "Search courses...",
-  "sidebar.previewHint": "Enable this source to choose which courses to show",
+  "sidebar.previewHint": "Select a course to enable this source and show only that course",
   "sidebar.selectAll": "All",
   "sidebar.selectNone": "None",
   "sidebar.removeSource": "Remove",

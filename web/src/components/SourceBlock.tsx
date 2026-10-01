@@ -102,6 +102,11 @@ export function SourceBlock({
     onChange({ ...settings, sources: settings.sources.map((s) => (s.sourceId === source.id ? next : s)) });
   }
 
+  // Picking a course from a disabled source enables it showing only that course
+  function enableWithCourse(key: string) {
+    onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'include', courses: [key] }] });
+  }
+
   function selectAll() {
     if (viewSource) updateViewSource({ ...viewSource, courseMode: 'exclude', courses: [] });
   }
@@ -193,27 +198,19 @@ export function SourceBlock({
           {refreshFailed && <p className="error-text">{t('sidebar.refreshError')}</p>}
           {courses.map((c) => {
             const name = i18n.language === 'en' && c.nameEn ? c.nameEn : c.name;
-            const label = (
-              <>
+            const visible = viewSource ? isCourseVisible(viewSource, c.key) : false;
+            return (
+              <label className="course-row" key={c.key}>
+                <input
+                  type="checkbox"
+                  checked={visible}
+                  onChange={() => (viewSource ? updateViewSource(toggleCourse(viewSource, c.key)) : enableWithCourse(c.key))}
+                />
                 <span className="course-dot" style={{ background: colorForCourse(c.key, settings.colors) }} />
                 <span className="course-name" title={name}>
                   {name}
                   {c.partition ? ` - ${c.partition}` : ''}
                 </span>
-              </>
-            );
-            if (!viewSource) {
-              return (
-                <div className="course-row" key={c.key}>
-                  {label}
-                </div>
-              );
-            }
-            const visible = isCourseVisible(viewSource, c.key);
-            return (
-              <label className="course-row" key={c.key}>
-                <input type="checkbox" checked={visible} onChange={() => updateViewSource(toggleCourse(viewSource, c.key))} />
-                {label}
               </label>
             );
           })}
