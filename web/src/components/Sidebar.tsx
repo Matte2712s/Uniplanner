@@ -9,6 +9,8 @@ import {
   collectSubtreeIds,
   folderNameSchema,
   isSelfOrDescendant,
+  MAX_FOLDER_NAME_LENGTH,
+  MAX_SOURCE_NAME_LENGTH,
   siblingOrderAfterMove,
   slotIndex,
   sourceNameSchema,
@@ -17,9 +19,11 @@ import { usePlanner } from '../state/PlannerContext.tsx';
 import { AddSourceDialog } from './AddSourceDialog.tsx';
 import { DeleteFolderDialog } from './DeleteFolderDialog.tsx';
 import { DeleteSourceDialog } from './DeleteSourceDialog.tsx';
+import { ErrorDialog } from './ErrorDialog.tsx';
 import { FolderTree, parseSiblingSlotId, type SlotEdge } from './FolderTree.tsx';
 import { IconFolder } from './icons.tsx';
 import { MoveConfirmDialog } from './MoveConfirmDialog.tsx';
+import { NameDialog } from './NameDialog.tsx';
 import { SourceBlock } from './SourceBlock.tsx';
 
 type DragData = { kind: 'source'; source: SourceDto } | { kind: 'folder'; folder: FolderDto };
@@ -27,6 +31,8 @@ type DragData = { kind: 'source'; source: SourceDto } | { kind: 'folder'; folder
 type PendingMove =
   | { kind: 'source'; source: SourceDto; targetFolderId: number | null; targetName: string | null; index?: number }
   | { kind: 'folder'; folder: FolderDto; targetFolderId: number | null; targetName: string | null; index?: number };
+
+type FolderNaming = { mode: 'new'; parentId: number | null } | { mode: 'rename'; folderId: number; currentName: string };
 
 interface PendingDelete {
   folder: FolderDto;
@@ -63,6 +69,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [addOpen, setAddOpen] = useState(false);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [folderNaming, setFolderNaming] = useState<FolderNaming | null>(null);
+  const [renamingSource, setRenamingSource] = useState<SourceDto | null>(null);
+  const [actionFailed, setActionFailed] = useState(false);
   const [pendingDeleteSource, setPendingDeleteSource] = useState<SourceDto | null>(null);
   const [dragging, setDragging] = useState<DragData | null>(null);
   const settings = planner.activeView?.settings;
@@ -133,8 +142,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       siblingOrderAfterMove(planner.folders, placed, moved, parentId, index).map(siblingKey).join() ===
       childrenOf(planner.folders, placed, parentId).map(siblingKey).join();
     if (unchanged) return;
-    if (dragged.kind === 'folder') void planner.moveFolder(dragged.folder.id, parentId, index);
-    else void planner.setSourcePlacement(dragged.source.id, parentId, index);
+    if (dragged.kind === 'folder') void reportFailure(() => planner.moveFolder(dragged.folder.id, parentId, index));
+    else void reportFailure(() => planner.setSourcePlacement(dragged.source.id, parentId, index));
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -158,36 +167,43 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   async function confirmPendingMove() {
     if (!pendingMove) return;
-    if (pendingMove.kind === 'source') await planner.setSourcePlacement(pendingMove.source.id, pendingMove.targetFolderId, pendingMove.index);
-    else await planner.moveFolder(pendingMove.folder.id, pendingMove.targetFolderId, pendingMove.index);
+    const move = pendingMove;
+    if (move.kind === 'source') await reportFailure(() => planner.setSourcePlacement(move.source.id, move.targetFolderId, move.index));
+    else await reportFailure(() => planner.moveFolder(move.folder.id, move.targetFolderId, move.index));
     setPendingMove(null);
   }
 
   function handleRename(folderId: number, currentName: string) {
-    const input = window.prompt(t('folders.namePlaceholder'), currentName);
-    if (input == null) return;
-    const parsed = folderNameSchema.safeParse(input);
-    if (!parsed.success) return window.alert(t('folders.invalidName'));
-    if (parsed.data !== currentName) void planner.renameFolder(folderId, parsed.data);
+    setFolderNaming({ mode: 'rename', folderId, currentName });
   }
 
   function handleNewFolder(parentId: number | null) {
-    if (planner.foldersAtLimit) return window.alert(t('folders.limitReached'));
-    const placeholder = parentId != null ? t('folders.subfolderNamePlaceholder') : t('folders.namePlaceholder');
-    const input = window.prompt(placeholder);
-    if (input == null) return;
-    const parsed = folderNameSchema.safeParse(input);
-    if (!parsed.success) return window.alert(t('folders.invalidName'));
-    void planner.createFolder(parsed.data, parentId);
+    if (planner.foldersAtLimit) return;
+    setFolderNaming({ mode: 'new', parentId });
+  }
+
+  function handleFolderNameSubmit(name: string) {
+    if (folderNaming?.mode === 'new') void reportFailure(() => planner.createFolder(name, folderNaming.parentId));
+    else if (folderNaming?.mode === 'rename' && name !== folderNaming.currentName) void reportFailure(() => planner.renameFolder(folderNaming.folderId, name));
+    setFolderNaming(null);
+  }
+
+  // Server failures surface in the themed error dialog
+  async function reportFailure(action: () => Promise<unknown>) {
+    try {
+      await action();
+    } catch {
+      setActionFailed(true);
+    }
   }
 
   function requestRenameSource(source: SourceDto) {
-    const currentName = sourceDisplayName(source);
-    const input = window.prompt(t('sidebar.renameSourcePlaceholder'), currentName);
-    if (input == null) return;
-    const parsed = sourceNameSchema.safeParse(input);
-    if (!parsed.success) return window.alert(t('sidebar.invalidSourceName'));
-    if (parsed.data !== currentName) void planner.renameSource(source.id, parsed.data);
+    setRenamingSource(source);
+  }
+
+  function handleSourceNameSubmit(name: string) {
+    if (renamingSource && name !== sourceDisplayName(renamingSource)) void reportFailure(() => planner.renameSource(renamingSource.id, name));
+    setRenamingSource(null);
   }
 
   function requestDeleteSource(source: SourceDto) {
@@ -196,7 +212,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   async function confirmDeleteSource() {
     if (!pendingDeleteSource) return;
-    await planner.removeSource(pendingDeleteSource.id);
+    await reportFailure(() => planner.removeSource(pendingDeleteSource.id));
     setPendingDeleteSource(null);
   }
 
@@ -205,7 +221,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     const affected = new Set([folder.id, ...subtreeIds]);
     const sourceCount = all.filter((s) => s.folderId != null && affected.has(s.folderId)).length;
     if (subtreeIds.length === 0 && sourceCount === 0) {
-      void planner.deleteFolder(folder.id);
+      void reportFailure(() => planner.deleteFolder(folder.id));
       return;
     }
     setPendingDelete({ folder, subfolderCount: subtreeIds.length, sourceCount });
@@ -213,7 +229,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   async function confirmDeleteFolder() {
     if (!pendingDelete) return;
-    await planner.deleteFolder(pendingDelete.folder.id);
+    await reportFailure(() => planner.deleteFolder(pendingDelete.folder.id));
     setPendingDelete(null);
   }
 
@@ -233,6 +249,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             onRenameSource={requestRenameSource}
             onRename={handleRename}
             onNewSubfolder={handleNewFolder}
+            newSubfolderDisabled={planner.foldersAtLimit}
             onDeleteRequest={requestDeleteFolder}
           />
 
@@ -312,6 +329,34 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           }}
         />
       )}
+
+      {folderNaming && (
+        <NameDialog
+          title={folderNaming.mode === 'rename' ? t('folders.rename') : folderNaming.parentId != null ? t('folders.newSubfolder') : t('folders.new')}
+          label={folderNaming.mode === 'new' && folderNaming.parentId != null ? t('folders.subfolderNamePlaceholder') : t('folders.namePlaceholder')}
+          initialValue={folderNaming.mode === 'rename' ? folderNaming.currentName : ''}
+          maxLength={MAX_FOLDER_NAME_LENGTH}
+          validate={(name) => folderNameSchema.safeParse(name).success}
+          invalidMessage={t('folders.invalidName')}
+          onSubmit={handleFolderNameSubmit}
+          onCancel={() => setFolderNaming(null)}
+        />
+      )}
+
+      {renamingSource && (
+        <NameDialog
+          title={t('sidebar.renameSource')}
+          label={t('sidebar.renameSourcePlaceholder')}
+          initialValue={sourceDisplayName(renamingSource)}
+          maxLength={MAX_SOURCE_NAME_LENGTH}
+          validate={(name) => sourceNameSchema.safeParse(name).success}
+          invalidMessage={t('sidebar.invalidSourceName')}
+          onSubmit={handleSourceNameSubmit}
+          onCancel={() => setRenamingSource(null)}
+        />
+      )}
+
+      {actionFailed && <ErrorDialog onClose={() => setActionFailed(false)} />}
 
       {pendingMove && (
         <MoveConfirmDialog

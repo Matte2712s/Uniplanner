@@ -8,6 +8,8 @@ export function NameDialog({
   label,
   initialValue = '',
   maxLength,
+  validate,
+  invalidMessage,
   onSubmit,
   onCancel,
 }: {
@@ -15,16 +17,19 @@ export function NameDialog({
   label: string;
   initialValue?: string;
   maxLength: number;
+  validate?: (name: string) => boolean;
+  invalidMessage?: string;
   onSubmit: (name: string) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
   const name = value.trim();
+  const invalid = name !== '' && validate != null && !validate(name);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (name) onSubmit(name);
+    if (name && !invalid) onSubmit(name);
   }
 
   return (
@@ -42,13 +47,15 @@ export function NameDialog({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onFocus={(e) => e.target.select()}
+            aria-invalid={invalid}
           />
+          {invalid && invalidMessage && <div className="error-text">{invalidMessage}</div>}
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn" onClick={onCancel}>
             {t('nameDialog.cancel')}
           </button>
-          <button type="submit" className="btn btn-primary" disabled={!name}>
+          <button type="submit" className="btn btn-primary" disabled={!name || invalid}>
             {t('nameDialog.save')}
           </button>
         </div>

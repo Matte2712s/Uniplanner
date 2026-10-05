@@ -15,6 +15,7 @@ export interface FolderTreeCallbacks {
   onRenameSource: (source: SourceDto) => void;
   onRename: (folderId: number, currentName: string) => void;
   onNewSubfolder: (parentId: number) => void;
+  newSubfolderDisabled: boolean;
   onDeleteRequest: (folder: FolderDto) => void;
 }
 
@@ -130,7 +131,12 @@ function FolderNodeItem({
         <span className="name">{folder.name}</span>
         <span className="hint">{items.length + children.length}</span>
         <div className="source-folder-actions">
-          <button className="icon-btn icon-btn-sm" title={t('folders.newSubfolder')} onClick={() => callbacks.onNewSubfolder(folder.id)}>
+          <button
+            className="icon-btn icon-btn-sm"
+            title={callbacks.newSubfolderDisabled ? t('folders.limitReached') : t('folders.newSubfolder')}
+            disabled={callbacks.newSubfolderDisabled}
+            onClick={() => callbacks.onNewSubfolder(folder.id)}
+          >
             <IconPlus />
           </button>
           <button

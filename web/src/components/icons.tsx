@@ -38,22 +38,6 @@ export function IconLayers(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function IconArrowUp(props: SVGProps<SVGSVGElement>) {
-  return (
-    <Svg {...props}>
-      <path d="M8 12.5V3.5M8 3.5L4 7.5M8 3.5l4 4" />
-    </Svg>
-  );
-}
-
-export function IconArrowDown(props: SVGProps<SVGSVGElement>) {
-  return (
-    <Svg {...props}>
-      <path d="M8 3.5v9M8 12.5L4 8.5M8 12.5l4-4" />
-    </Svg>
-  );
-}
-
 export function IconPencil(props: SVGProps<SVGSVGElement>) {
   return (
     <Svg {...props}>

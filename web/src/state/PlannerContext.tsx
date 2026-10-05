@@ -63,7 +63,7 @@ export function usePlanner(): PlannerState {
 
 export function PlannerProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const { i18n, t } = useTranslation();
+  const { i18n } = useTranslation();
 
   const meQuery = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 60_000 });
   const user = meQuery.data ?? null;
@@ -234,11 +234,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     },
     removeSource: async (id) => {
       if (authed) {
-        try {
-          await removeSourceMutation.mutateAsync(id);
-        } catch {
-          window.alert(t('error.generic'));
-        }
+        await removeSourceMutation.mutateAsync(id);
       } else {
         guestStore.removeSource(id);
         refreshGuest();
@@ -246,11 +242,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     },
     renameSource: async (id, name) => {
       if (authed) {
-        try {
-          await renameSourceMutation.mutateAsync({ id, name });
-        } catch {
-          window.alert(t('error.generic'));
-        }
+        await renameSourceMutation.mutateAsync({ id, name });
       } else {
         guestStore.renameSource(id, name);
         refreshGuest();
@@ -309,11 +301,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     },
     deleteFolder: async (id) => {
       if (authed) {
-        try {
-          await deleteFolderMutation.mutateAsync(id);
-        } catch {
-          window.alert(t('error.generic'));
-        }
+        await deleteFolderMutation.mutateAsync(id);
       } else {
         guestStore.deleteFolder(id);
         refreshGuest();

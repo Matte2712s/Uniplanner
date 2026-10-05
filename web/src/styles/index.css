@@ -847,11 +847,45 @@ a {
 }
 
 .view-menu-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
   border-radius: 6px;
   min-height: 40px;
+}
+
+/* Full-height handle so it is an easy touch target inside the row */
+.view-menu-item > .drag-handle {
+  align-self: stretch;
+  width: 28px;
+  margin-left: 4px;
+}
+
+.drag-handle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Insertion line while another view is dragged over this row */
+.view-menu-item.drop-before::before,
+.view-menu-item.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.view-menu-item.drop-before::before {
+  top: -2px;
+}
+
+.view-menu-item.drop-after::after {
+  bottom: -2px;
 }
 
 .view-menu-item:hover,
