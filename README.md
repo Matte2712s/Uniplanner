@@ -114,7 +114,7 @@ Licensed under [Creative Commons Attribution-NonCommercial-ShareAlike 4.0
 International](https://creativecommons.org/licenses/by-nc-sa/4.0/) (CC BY-NC-SA
 4.0). The full text is in [LICENSE](LICENSE).
 
-- Attribution: give credit to Matteo Sardi, link to the license, and indicate
+- Attribution: give credit, link to the license, and indicate
   if you made changes.
 - NonCommercial: you may not use the project or derivatives for commercial
   purposes.
