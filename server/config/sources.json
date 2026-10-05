@@ -17,12 +17,7 @@
           { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "613b951ac10c8a0017da45cf", "title": "Canale B", "titleEn": "Channel B" }
         ]
       },
-      {
-        "folder": "Terzo anno",
-        "children": [
-          { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "612617b82db4bb0017172839", "title": "Tutti gli insegnamenti", "titleEn": "All courses" }
-        ]
-      },
+      { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "612617b82db4bb0017172839", "title": "Terzo anno", "titleEn": "Third year" },
       { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "613bd49941164e0018f0f1d7" }
     ]
   },

@@ -318,7 +318,57 @@ a {
 }
 
 .source-folder {
+  position: relative;
   margin-bottom: 10px;
+}
+
+/* Wraps a source inside a folder so its drop slots can anchor to it. Takes
+   over the source block's bottom margin to keep the spacing unchanged. */
+.sibling-host {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.sibling-host > .source-block {
+  margin-bottom: 0;
+}
+
+/* Drop slot beside a folder or source (reorder, not nest). Only mounted while
+   something is dragged. It overlaps the gap and the item's edge, so it needs
+   no layout space of its own. */
+.sibling-drop-slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.sibling-drop-slot.before {
+  top: -10px;
+}
+
+.sibling-drop-slot.after {
+  bottom: -10px;
+}
+
+.sibling-drop-slot.drop-target::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.sibling-drop-slot.before.drop-target::after {
+  top: 4px;
+}
+
+.sibling-drop-slot.after.drop-target::after {
+  bottom: 4px;
 }
 
 .source-folder-header {

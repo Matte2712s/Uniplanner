@@ -22,7 +22,7 @@ interface PlannerState {
   addCustomSource(source: SourceDto): void;
   removeSource(id: number): Promise<void>;
   renameSource(id: number, name: string): Promise<void>;
-  setSourcePlacement(sourceId: number, folderId: number | null): Promise<void>;
+  setSourcePlacement(sourceId: number, folderId: number | null, index?: number): Promise<void>;
 
   programs: ProgramDto[];
   addProgram(program: string): Promise<void>;
@@ -31,7 +31,7 @@ interface PlannerState {
   foldersAtLimit: boolean;
   createFolder(name: string, parentId?: number | null): Promise<FolderDto>;
   renameFolder(id: number, name: string): Promise<void>;
-  moveFolder(id: number, parentId: number | null): Promise<void>;
+  moveFolder(id: number, parentId: number | null, index?: number): Promise<void>;
   deleteFolder(id: number): Promise<void>;
 
   views: View[];
@@ -161,7 +161,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
   });
   const setPlacementMutation = useMutation({
-    mutationFn: (input: { id: number; folderId: number | null }) => api.setSourcePlacement(input.id, input.folderId),
+    mutationFn: (input: { id: number; folderId: number | null; index?: number }) =>
+      api.setSourcePlacement(input.id, input.folderId, input.index),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
   });
   const addProgramMutation = useMutation({
@@ -177,7 +178,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
   });
   const moveFolderMutation = useMutation({
-    mutationFn: (input: { id: number; parentId: number | null }) => api.moveFolder(input.id, input.parentId),
+    mutationFn: (input: { id: number; parentId: number | null; index?: number }) =>
+      api.moveFolder(input.id, input.parentId, input.index),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
   });
   const deleteFolderMutation = useMutation({
@@ -217,6 +219,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         : guest.customSources.map((s) => ({
             ...s,
             folderId: guest.placements[s.id] ?? null,
+            position: guest.positions[s.id] ?? 0,
             displayName: guest.customNames[s.id] ?? null,
           })),
     },
@@ -253,11 +256,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         refreshGuest();
       }
     },
-    setSourcePlacement: async (sourceId, folderId) => {
+    setSourcePlacement: async (sourceId, folderId, index) => {
       if (authed) {
-        await setPlacementMutation.mutateAsync({ id: sourceId, folderId });
+        await setPlacementMutation.mutateAsync({ id: sourceId, folderId, index });
       } else {
-        guestStore.setPlacement(sourceId, folderId);
+        guestStore.setPlacement(sourceId, folderId, index);
         refreshGuest();
       }
     },
@@ -296,11 +299,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         refreshGuest();
       }
     },
-    moveFolder: async (id, parentId) => {
+    moveFolder: async (id, parentId, index) => {
       if (authed) {
-        await moveFolderMutation.mutateAsync({ id, parentId });
+        await moveFolderMutation.mutateAsync({ id, parentId, index });
       } else {
-        guestStore.moveFolder(id, parentId);
+        guestStore.moveFolder(id, parentId, index);
         refreshGuest();
       }
     },

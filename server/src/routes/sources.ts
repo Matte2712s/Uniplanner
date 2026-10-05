@@ -18,6 +18,7 @@ import {
   listUserFolders,
   listUserPlacements,
   listUserSourceNames,
+  listUserSourcePositions,
   parseGroupPath,
   renameUserSource,
   setSourcePlacement,
@@ -33,7 +34,7 @@ import { loadCourses } from '../courses.ts';
 import { validateSourceUrl, persistValidatedSource } from '../sources/validate.ts';
 import { SourceUnavailableError } from '../cineca/service.ts';
 
-function toDto(row: SourceRow, folderId: number | null, displayName: string | null = null): SourceDto {
+function toDto(row: SourceRow, folderId: number | null, displayName: string | null = null, position = 0): SourceDto {
   return {
     id: row.id,
     kind: row.kind,
@@ -44,6 +45,7 @@ function toDto(row: SourceRow, folderId: number | null, displayName: string | nu
     url: canonicalCalendarUrl(row.host, row.link_calendario_id),
     groupPath: parseGroupPath(row.group_path),
     folderId,
+    position,
     displayName,
   };
 }
@@ -66,12 +68,10 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
     const user = currentUser(db, req, reply);
     const placements = user ? listUserPlacements(db, user.id) : new Map();
     const names = user ? listUserSourceNames(db, user.id) : new Map();
-    const defaults = user
-      ? linkedDefaultSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null, names.get(s.id) ?? null))
-      : [];
-    const custom = user
-      ? userCustomSources(db, user.id).map((s) => toDto(s, placements.get(s.id) ?? null, names.get(s.id) ?? null))
-      : [];
+    const positions = user ? listUserSourcePositions(db, user.id) : new Map();
+    const toUserDto = (s: SourceRow) => toDto(s, placements.get(s.id) ?? null, names.get(s.id) ?? null, positions.get(s.id) ?? 0);
+    const defaults = user ? linkedDefaultSources(db, user.id).map(toUserDto) : [];
+    const custom = user ? userCustomSources(db, user.id).map(toUserDto) : [];
     const folders = user ? listUserFolders(db, user.id).map(toFolderDto) : [];
     const linkedDefaultIds = new Set(defaults.map((s) => s.id));
     const programs: ProgramDto[] = listPrograms(db).map((p) => toProgramDto(p, linkedDefaultIds));
@@ -82,7 +82,7 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
   app.post(
     '/api/sources/validate',
     { config: { rateLimit: { max: 15, timeWindow: '1 minute' } } },
-    async (req, reply) => {
+    async (req) => {
       const body = req.body as { url?: unknown };
       const result = await validateSourceUrl(db, body.url);
       // Failed validation is expected user input, not an HTTP error - keep status 200 so the
@@ -136,7 +136,7 @@ export function registerSourceRoutes(app: FastifyInstance, db: Db): void {
     if (parsed.data.folderId != null && !getUserFolder(db, user.id, parsed.data.folderId)) {
       return reply.code(400).send({ error: 'invalid_folder' });
     }
-    setSourcePlacement(db, user.id, id, parsed.data.folderId);
+    setSourcePlacement(db, user.id, id, parsed.data.folderId, parsed.data.index);
     return { ok: true };
   });
 

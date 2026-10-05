@@ -139,6 +139,117 @@ describe('folder + placement routes', () => {
     expect(unownedRes.json().error).toBe('invalid_folder');
   });
 
+  it('reorders sibling folders through PUT /api/folders/:id with an index', async () => {
+    const db = openDb(':memory:');
+    const server = (app = await buildApp(db));
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+
+    const ids: number[] = [];
+    for (const name of ['A', 'B', 'C']) {
+      ids.push((await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name }))).json().folder.id);
+    }
+
+    const orderOf = async () => {
+      const res = await server.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
+      const folders = (res.json() as { folders: { id: number; name: string; position: number }[] }).folders;
+      return folders.sort((x, y) => x.position - y.position).map((f) => f.name);
+    };
+
+    // Index alone keeps the current parent
+    const upRes = await app.inject(jsonReq('PUT', `/api/folders/${ids[2]}`, cookieHeader, { index: 0 }));
+    expect(upRes.statusCode).toBe(200);
+    expect(await orderOf()).toEqual(['C', 'A', 'B']);
+
+    const downRes = await app.inject(jsonReq('PUT', `/api/folders/${ids[2]}`, cookieHeader, { parentId: null, index: 2 }));
+    expect(downRes.statusCode).toBe(200);
+    expect(await orderOf()).toEqual(['A', 'B', 'C']);
+
+    const negative = await app.inject(jsonReq('PUT', `/api/folders/${ids[2]}`, cookieHeader, { index: -1 }));
+    expect(negative.statusCode).toBe(400);
+  });
+
+  it('places a folder at an index while reparenting it, and still rejects cycles', async () => {
+    const db = openDb(':memory:');
+    app = await buildApp(db);
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+
+    const parent = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Parent' }))).json().folder;
+    const first = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'First' }))).json().folder;
+    const second = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Second' }))).json().folder;
+    await app.inject(jsonReq('PUT', `/api/folders/${first.id}`, cookieHeader, { parentId: parent.id }));
+    await app.inject(jsonReq('PUT', `/api/folders/${second.id}`, cookieHeader, { parentId: parent.id, index: 0 }));
+
+    const res = await app.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
+    const folders = (res.json() as { folders: { id: number; parentId: number | null; position: number }[] }).folders;
+    const children = folders.filter((f) => f.parentId === parent.id).sort((x, y) => x.position - y.position);
+    expect(children.map((f) => f.id)).toEqual([second.id, first.id]);
+
+    const cycle = await app.inject(jsonReq('PUT', `/api/folders/${parent.id}`, cookieHeader, { parentId: first.id, index: 0 }));
+    expect(cycle.statusCode).toBe(400);
+    expect(cycle.json().error).toBe('invalid_parent');
+  });
+
+  it('orders a source among subfolders through PUT /api/sources/:id/placement with an index', async () => {
+    const db = openDb(':memory:');
+    app = await buildApp(db);
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+
+    const parent = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Parent' }))).json().folder;
+    const first = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'First' }))).json().folder;
+    const second = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Second' }))).json().folder;
+    for (const f of [first, second]) await app.inject(jsonReq('PUT', `/api/folders/${f.id}`, cookieHeader, { parentId: parent.id }));
+    const source = linkedDefaultSource(db, user.id, '612617b82db4bb0017172839', 'Magistrale');
+
+    const place = (index?: number) =>
+      app!.inject(jsonReq('PUT', `/api/sources/${source.id}/placement`, cookieHeader, { folderId: parent.id, index }));
+    const positions = async () => {
+      const res = await app!.inject({ method: 'GET', url: '/api/sources', headers: { cookie: cookieHeader } });
+      const body = res.json() as {
+        defaults: { id: number; position: number }[];
+        folders: { id: number; parentId: number | null; position: number }[];
+      };
+      return {
+        source: body.defaults.find((s) => s.id === source.id)!.position,
+        first: body.folders.find((f) => f.id === first.id)!.position,
+        second: body.folders.find((f) => f.id === second.id)!.position,
+      };
+    };
+
+    // No index appends after both subfolders
+    expect((await place()).statusCode).toBe(200);
+    expect(await positions()).toEqual({ first: 0, second: 1, source: 2 });
+
+    // Slot between the two
+    expect((await place(1)).statusCode).toBe(200);
+    expect(await positions()).toEqual({ first: 0, source: 1, second: 2 });
+
+    // Slot on top
+    expect((await place(0)).statusCode).toBe(200);
+    expect(await positions()).toEqual({ source: 0, first: 1, second: 2 });
+
+    const negative = await place(-1);
+    expect(negative.statusCode).toBe(400);
+  });
+
+  it('puts a subfolder created via the API after the sources already in its parent', async () => {
+    const db = openDb(':memory:');
+    app = await buildApp(db);
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+
+    const parent = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Parent' }))).json().folder;
+    const source = linkedDefaultSource(db, user.id, '612617b82db4bb0017172839', 'Canale A');
+    await app.inject(jsonReq('PUT', `/api/sources/${source.id}/placement`, cookieHeader, { folderId: parent.id }));
+    const child = (await app.inject(jsonReq('POST', '/api/folders', cookieHeader, { name: 'Child' }))).json().folder;
+    const moved = await app.inject(jsonReq('PUT', `/api/folders/${child.id}`, cookieHeader, { parentId: parent.id }));
+    expect(moved.statusCode).toBe(200);
+    // Reparenting without an index appends after the source
+    expect(moved.json().folder.position).toBe(1);
+  });
+
   it('rejects moving a source into a folder owned by someone else', async () => {
     const db = openDb(':memory:');
     app = await buildApp(db);

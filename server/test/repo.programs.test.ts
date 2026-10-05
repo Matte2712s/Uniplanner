@@ -6,6 +6,7 @@ import {
   listPrograms,
   listUserFolders,
   listUserPlacements,
+  listUserSourcePositions,
   unlinkUserSource,
   upsertDefaultSource,
   upsertUser,
@@ -131,5 +132,36 @@ describe('addProgramForUser', () => {
 
     const placements = listUserPlacements(db, user.id);
     expect(placements.get(curriculumA.id)).toBe(curriculum.id);
+  });
+
+  it('places a source with no group_path after the year folders, in config order', () => {
+    const db = openDb(':memory:');
+    const user = makeUser(db, 'a');
+    const mk = (linkId: string, title: string, path: string[]) =>
+      upsertDefaultSource(db, {
+        host: 'unito.prod.up.cineca.it',
+        link_calendario_id: linkId,
+        title,
+        title_en: null,
+        group_path: encodeGroupPath(path),
+        program: 'Informatica',
+      });
+    const primo = mk('613b9237d969e100173d4110', 'Canale A', ['Primo anno']);
+    const secondo = mk('613b940fda7aec0018faeede', 'Canale A', ['Secondo anno']);
+    const terzo = mk('612617b82db4bb0017172839', 'Terzo anno', []);
+    const magistrale = mk('613bd49941164e0018f0f1d7', 'Magistrale Informatica', []);
+
+    addProgramForUser(db, user.id, 'Informatica');
+
+    const folders = listUserFolders(db, user.id);
+    const root = folders.find((f) => f.parent_id == null)!;
+    const positions = listUserSourcePositions(db, user.id);
+    const inRoot = [
+      ...folders.filter((f) => f.parent_id === root.id).map((f) => ({ name: f.name, position: f.position })),
+      ...[terzo, magistrale].map((s) => ({ name: s.title, position: positions.get(s.id)! })),
+    ].sort((a, b) => a.position - b.position);
+    expect(inRoot.map((i) => i.name)).toEqual(['Primo anno', 'Secondo anno', 'Terzo anno', 'Magistrale Informatica']);
+    expect(listUserPlacements(db, user.id).get(primo.id)).not.toBe(root.id);
+    expect(listUserPlacements(db, user.id).get(secondo.id)).not.toBe(root.id);
   });
 });

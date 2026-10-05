@@ -42,21 +42,23 @@ export function registerFolderRoutes(app: FastifyInstance, db: Db): void {
     if (!user) return;
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) return reply.code(400).send({ error: 'invalid_id' });
-    if (!getUserFolder(db, user.id, id)) return reply.code(404).send({ error: 'not_found' });
+    const existing = getUserFolder(db, user.id, id);
+    if (!existing) return reply.code(404).send({ error: 'not_found' });
     const parsed = folderPatchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', issues: parsed.error.issues });
 
     if (parsed.data.name !== undefined) {
       renameUserFolder(db, user.id, id, parsed.data.name);
     }
-    if (parsed.data.parentId !== undefined) {
-      const parentId = parsed.data.parentId;
+    if (parsed.data.parentId !== undefined || parsed.data.index !== undefined) {
+      // Index alone reorders within the current parent
+      const parentId = parsed.data.parentId === undefined ? existing.parent_id : parsed.data.parentId;
       if (parentId != null) {
         if (!getUserFolder(db, user.id, parentId)) return reply.code(400).send({ error: 'invalid_folder' });
         const nodes = listUserFolders(db, user.id).map(toNode);
         if (isSelfOrDescendant(nodes, id, parentId)) return reply.code(400).send({ error: 'invalid_parent' });
       }
-      moveUserFolder(db, user.id, id, parentId);
+      moveUserFolder(db, user.id, id, parentId, parsed.data.index);
     }
     return { folder: toDto(getUserFolder(db, user.id, id)!) };
   });

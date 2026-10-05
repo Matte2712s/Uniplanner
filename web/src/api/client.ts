@@ -56,8 +56,8 @@ export const api = {
       body: JSON.stringify({ url }),
     }),
   removeSource: (id: number) => call<{ ok: true }>(`/api/sources/${id}`, { method: 'DELETE' }),
-  setSourcePlacement: (id: number, folderId: number | null) =>
-    call<{ ok: true }>(`/api/sources/${id}/placement`, { method: 'PUT', body: JSON.stringify({ folderId }) }),
+  setSourcePlacement: (id: number, folderId: number | null, index?: number) =>
+    call<{ ok: true }>(`/api/sources/${id}/placement`, { method: 'PUT', body: JSON.stringify({ folderId, index }) }),
   renameSource: (id: number, name: string) =>
     call<{ ok: true }>(`/api/sources/${id}/name`, { method: 'PUT', body: JSON.stringify({ name }) }),
   sourceCourses: (id: number, from: string, to: string, refresh = false) =>
@@ -68,8 +68,8 @@ export const api = {
   createFolder: (name: string) => call<{ folder: FolderDto }>('/api/folders', { method: 'POST', body: JSON.stringify({ name }) }),
   renameFolder: (id: number, name: string) =>
     call<{ folder: FolderDto }>(`/api/folders/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
-  moveFolder: (id: number, parentId: number | null) =>
-    call<{ folder: FolderDto }>(`/api/folders/${id}`, { method: 'PUT', body: JSON.stringify({ parentId }) }),
+  moveFolder: (id: number, parentId: number | null, index?: number) =>
+    call<{ folder: FolderDto }>(`/api/folders/${id}`, { method: 'PUT', body: JSON.stringify({ parentId, index }) }),
   deleteFolder: (id: number) => call<{ ok: true }>(`/api/folders/${id}`, { method: 'DELETE' }),
 
   addProgram: (program: string) =>

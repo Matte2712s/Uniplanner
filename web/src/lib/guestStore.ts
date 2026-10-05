@@ -1,5 +1,5 @@
-import type { Lang, ProgramDto, SourceDto, View, ViewSettings } from '@planner/shared';
-import { collectSubtreeIds, defaultViewSettings, isSelfOrDescendant } from '@planner/shared';
+import type { Lang, PlacedSource, ProgramDto, SiblingRef, SourceDto, View, ViewSettings } from '@planner/shared';
+import { childrenOf, collectSubtreeIds, defaultViewSettings, isSelfOrDescendant, siblingOrderAfterMove } from '@planner/shared';
 
 const KEY = 'planner.guest.v1';
 const IMPORTED_KEY = 'planner.guest.imported';
@@ -21,6 +21,8 @@ interface GuestState {
   nextFolderId: number;
   // sourceId -> folderId (null = not in any folder)
   placements: Record<number, number | null>;
+  // sourceId -> order among its folder's children (shared with the subfolders)
+  positions: Record<number, number>;
   // ids of default sources this guest has added (via a program, individually)
   addedDefaultIds: number[];
   // sourceId -> per-user rename override
@@ -39,6 +41,7 @@ function read(): GuestState {
       folders: (parsed.folders ?? []).map((f) => ({ ...f, parentId: f.parentId ?? null })),
       nextFolderId: parsed.nextFolderId ?? 1,
       placements: parsed.placements ?? {},
+      positions: parsed.positions ?? {},
       addedDefaultIds: parsed.addedDefaultIds ?? [],
       customNames: parsed.customNames ?? {},
     };
@@ -65,6 +68,7 @@ function seed(): GuestState {
     folders: [],
     nextFolderId: 1,
     placements: {},
+    positions: {},
     addedDefaultIds: [],
     customNames: {},
   };
@@ -125,6 +129,38 @@ function pruneSourceFromViews(views: View[], sourceId: number): View[] {
       ? { ...v, settings: { ...v.settings, sources: v.settings.sources.filter((s) => s.sourceId !== sourceId) } }
       : v,
   );
+}
+
+function placedSources(state: Pick<GuestState, 'placements' | 'positions'>): PlacedSource[] {
+  return Object.entries(state.placements).map(([id, folderId]) => ({
+    id: Number(id),
+    folderId,
+    position: state.positions[Number(id)] ?? 0,
+  }));
+}
+
+/** Position that puts something after every current child (subfolders and placed sources) of parentId. */
+function nextChildPosition(folders: GuestFolder[], sources: PlacedSource[], parentId: number | null): number {
+  const children = childrenOf(folders, sources, parentId);
+  return children.length === 0 ? 0 : Math.max(...children.map((c) => c.position)) + 1;
+}
+
+/** Renumbers a folder's children 0..n in the given order. */
+function applyChildOrder(
+  folders: GuestFolder[],
+  positions: Record<number, number>,
+  order: SiblingRef[],
+): { folders: GuestFolder[]; positions: Record<number, number> } {
+  const folderPositions = new Map<number, number>();
+  const nextPositions = { ...positions };
+  order.forEach((item, position) => {
+    if (item.kind === 'folder') folderPositions.set(item.id, position);
+    else nextPositions[item.id] = position;
+  });
+  return {
+    folders: folders.map((f) => (folderPositions.has(f.id) ? { ...f, position: folderPositions.get(f.id)! } : f)),
+    positions: nextPositions,
+  };
 }
 
 export const guestStore = {
@@ -199,6 +235,8 @@ export const guestStore = {
     const state = read();
     const placements = { ...state.placements };
     delete placements[id];
+    const positions = { ...state.positions };
+    delete positions[id];
     const customNames = { ...state.customNames };
     delete customNames[id];
     write({
@@ -206,6 +244,7 @@ export const guestStore = {
       customSources: state.customSources.filter((s) => s.id !== id),
       addedDefaultIds: state.addedDefaultIds.filter((sid) => sid !== id),
       placements,
+      positions,
       customNames,
       views: pruneSourceFromViews(state.views, id),
     });
@@ -219,8 +258,8 @@ export const guestStore = {
 
   createFolder(name: string, parentId: number | null = null): GuestFolder {
     const state = read();
-    const siblingCount = state.folders.filter((f) => f.parentId === parentId).length;
-    const folder: GuestFolder = { id: state.nextFolderId, name, position: siblingCount, parentId };
+    const position = nextChildPosition(state.folders, placedSources(state), parentId);
+    const folder: GuestFolder = { id: state.nextFolderId, name, position, parentId };
     write({ ...state, folders: [...state.folders, folder], nextFolderId: state.nextFolderId + 1 });
     return folder;
   },
@@ -230,15 +269,18 @@ export const guestStore = {
     write({ ...state, folders: state.folders.map((f) => (f.id === id ? { ...f, name } : f)) });
   },
 
-  /** Rejects (no-ops) a move that would put a folder inside itself or one of its own descendants. */
-  moveFolder(id: number, parentId: number | null): void {
+  /**
+   * Reparents and/or reorders a folder, landing at index among the new parent's
+   * other children, subfolders and sources alike (appended when omitted).
+   * Rejects (no-ops) a move that would put a folder inside itself or one of its
+   * own descendants.
+   */
+  moveFolder(id: number, parentId: number | null, index?: number): void {
     const state = read();
     if (parentId != null && isSelfOrDescendant(state.folders, id, parentId)) return;
-    const siblingCount = state.folders.filter((f) => f.id !== id && f.parentId === parentId).length;
-    write({
-      ...state,
-      folders: state.folders.map((f) => (f.id === id ? { ...f, parentId, position: siblingCount } : f)),
-    });
+    const reparented = state.folders.map((f) => (f.id === id ? { ...f, parentId } : f));
+    const order = siblingOrderAfterMove(reparented, placedSources(state), { kind: 'folder', id }, parentId, index);
+    write({ ...state, ...applyChildOrder(reparented, state.positions, order) });
   },
 
   /** Deletes a folder and its whole subtree, along with every source placed anywhere in it (like removing them one by one). */
@@ -251,9 +293,11 @@ export const guestStore = {
     const removedSourceIds = new Set(sourceIds);
 
     const placements = { ...state.placements };
+    const positions = { ...state.positions };
     const customNames = { ...state.customNames };
     for (const sourceId of sourceIds) {
       delete placements[sourceId];
+      delete positions[sourceId];
       delete customNames[sourceId];
     }
     let views = state.views;
@@ -265,14 +309,37 @@ export const guestStore = {
       customSources: state.customSources.filter((s) => !removedSourceIds.has(s.id)),
       addedDefaultIds: state.addedDefaultIds.filter((sid) => !removedSourceIds.has(sid)),
       placements,
+      positions,
       customNames,
       views,
     });
   },
 
-  setPlacement(sourceId: number, folderId: number | null): void {
+  /**
+   * Puts a source in a folder (null = root) at index among that folder's other
+   * children, subfolders and sources alike. Omitted index appends; the root is
+   * not ordered, so an index there is ignored.
+   */
+  setPlacement(sourceId: number, folderId: number | null, index?: number): void {
     const state = read();
-    write({ ...state, placements: { ...state.placements, [sourceId]: folderId } });
+    if (folderId == null || index === undefined) {
+      const position = folderId == null ? 0 : nextChildPosition(state.folders, placedSources(state), folderId);
+      write({
+        ...state,
+        placements: { ...state.placements, [sourceId]: folderId },
+        positions: { ...state.positions, [sourceId]: position },
+      });
+      return;
+    }
+    const placements = { ...state.placements, [sourceId]: folderId };
+    const order = siblingOrderAfterMove(
+      state.folders,
+      placedSources({ placements, positions: state.positions }),
+      { kind: 'source', id: sourceId },
+      folderId,
+      index,
+    );
+    write({ ...state, placements, ...applyChildOrder(state.folders, state.positions, order) });
   },
 
   /**
@@ -293,32 +360,34 @@ export const guestStore = {
     let root = folders.find((f) => f.parentId == null && f.name === rootName);
     let nextFolderId = state.nextFolderId;
     if (!root) {
-      root = { id: nextFolderId++, name: rootName, position: folders.length, parentId: null };
+      root = { id: nextFolderId++, name: rootName, position: nextChildPosition(folders, [], null), parentId: null };
       folders = [...folders, root];
     }
     const folderByParentAndName = new Map<string, GuestFolder>();
     for (const f of folders) folderByParentAndName.set(`${f.parentId}:${f.name}`, f);
+    const placements = { ...state.placements };
+    const positions = { ...state.positions };
 
     function resolveSubfolder(parent: GuestFolder, name: string): GuestFolder {
       const key = `${parent.id}:${name}`;
       let folder = folderByParentAndName.get(key);
       if (!folder) {
-        const siblingCount = folders.filter((f) => f.parentId === parent.id).length;
-        folder = { id: nextFolderId++, name, position: siblingCount, parentId: parent.id };
+        const position = nextChildPosition(folders, placedSources({ placements, positions }), parent.id);
+        folder = { id: nextFolderId++, name, position, parentId: parent.id };
         folderByParentAndName.set(key, folder);
         folders = [...folders, folder];
       }
       return folder;
     }
 
-    const placements = { ...state.placements };
     for (const source of newSources) {
       let target = root;
       for (const segment of source.groupPath) target = resolveSubfolder(target, segment);
+      positions[source.id] = nextChildPosition(folders, placedSources({ placements, positions }), target.id);
       placements[source.id] = target.id;
       added.add(source.id);
     }
-    write({ ...state, folders, nextFolderId, placements, addedDefaultIds: [...added] });
+    write({ ...state, folders, nextFolderId, placements, positions, addedDefaultIds: [...added] });
   },
 
   /** Filters the full default-source catalog down to what this guest has added, merging in each one's folder and rename override. */
@@ -327,7 +396,12 @@ export const guestStore = {
     const added = new Set(state.addedDefaultIds);
     return catalog
       .filter((s) => added.has(s.id))
-      .map((s) => ({ ...s, folderId: state.placements[s.id] ?? null, displayName: state.customNames[s.id] ?? null }));
+      .map((s) => ({
+        ...s,
+        folderId: state.placements[s.id] ?? null,
+        position: state.positions[s.id] ?? 0,
+        displayName: state.customNames[s.id] ?? null,
+      }));
   },
 
   /** Recomputes each program's `added` state from what this guest has actually added locally. */

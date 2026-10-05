@@ -1,5 +1,6 @@
 import type { CourseDto, ViewSettings } from '@planner/shared';
-import { collectSubtreeIds, defaultViewSettings } from '@planner/shared';
+import type { PlacedSource, SiblingRef } from '@planner/shared';
+import { collectSubtreeIds, defaultViewSettings, siblingOrderAfterMove } from '@planner/shared';
 import { tx, type Db } from './index.ts';
 
 export interface UserRow {
@@ -299,14 +300,45 @@ export function countUserFolders(db: Db, userId: number): number {
   return row.n;
 }
 
+/** Position that puts something after every current child (subfolders and placed sources) of parentId. */
+function nextChildPosition(db: Db, userId: number, parentId: number | null): number {
+  // A null folder_id never matches "=", so the root counts folders only
+  const row = db
+    .prepare(
+      `SELECT COALESCE(MAX(p), -1) + 1 AS p FROM (
+         SELECT position AS p FROM user_folders WHERE user_id = ? AND parent_id IS ?
+         UNION ALL
+         SELECT position AS p FROM user_source_placements WHERE user_id = ? AND folder_id = ?
+       )`,
+    )
+    .get(userId, parentId, userId, parentId) as { p: number };
+  return row.p;
+}
+
+function folderNodes(db: Db, userId: number) {
+  return listUserFolders(db, userId).map((f) => ({ id: f.id, name: f.name, position: f.position, parentId: f.parent_id }));
+}
+
+/** Every source the user has a placement row for, with its folder and position. */
+function placedSources(db: Db, userId: number): PlacedSource[] {
+  const rows = db
+    .prepare('SELECT source_id, folder_id, position FROM user_source_placements WHERE user_id = ?')
+    .all(userId) as unknown as { source_id: number; folder_id: number | null; position: number }[];
+  return rows.map((r) => ({ id: r.source_id, folderId: r.folder_id, position: r.position }));
+}
+
+/** Renumbers a folder's children 0..n in the given order. Not wrapped in its own tx so callers can batch it. */
+function writeChildOrder(db: Db, userId: number, order: SiblingRef[]): void {
+  const setFolder = db.prepare('UPDATE user_folders SET position = ? WHERE id = ? AND user_id = ?');
+  const setSource = db.prepare('UPDATE user_source_placements SET position = ? WHERE source_id = ? AND user_id = ?');
+  order.forEach((item, position) => (item.kind === 'folder' ? setFolder : setSource).run(position, item.id, userId));
+}
+
 export function createUserFolder(db: Db, userId: number, name: string, parentId: number | null = null): FolderRow {
-  const pos = db
-    .prepare('SELECT COALESCE(MAX(position), -1) + 1 as p FROM user_folders WHERE user_id = ? AND parent_id IS ?')
-    .get(userId, parentId) as { p: number };
   db.prepare('INSERT INTO user_folders (user_id, name, position, parent_id) VALUES (?, ?, ?, ?)').run(
     userId,
     name,
-    pos.p,
+    nextChildPosition(db, userId, parentId),
     parentId,
   );
   const row = db
@@ -322,22 +354,26 @@ export function renameUserFolder(db: Db, userId: number, folderId: number, name:
 }
 
 /**
- * Reparents a folder. Ownership of both the folder and the new parent (when
- * not null), and cycle-safety, are the caller's responsibility (see
- * isSelfOrDescendant in @planner/shared) - this just moves it and recomputes
- * its position scoped to the new parent so it doesn't collide with siblings.
+ * Reparents and/or reorders a folder. Ownership of both the folder and the new
+ * parent (when not null), and cycle-safety, are the caller's responsibility
+ * (see isSelfOrDescendant in @planner/shared). The folder lands at index among
+ * the new parent's other children, subfolders and sources alike (appended when
+ * omitted), and those children are renumbered so positions stay unique and
+ * contiguous.
  */
-export function moveUserFolder(db: Db, userId: number, folderId: number, parentId: number | null): FolderRow | undefined {
+export function moveUserFolder(
+  db: Db,
+  userId: number,
+  folderId: number,
+  parentId: number | null,
+  index?: number,
+): FolderRow | undefined {
   if (!getUserFolder(db, userId, folderId)) return undefined;
-  const pos = db
-    .prepare('SELECT COALESCE(MAX(position), -1) + 1 as p FROM user_folders WHERE user_id = ? AND parent_id IS ?')
-    .get(userId, parentId) as { p: number };
-  db.prepare('UPDATE user_folders SET parent_id = ?, position = ? WHERE id = ? AND user_id = ?').run(
-    parentId,
-    pos.p,
-    folderId,
-    userId,
-  );
+  const order = siblingOrderAfterMove(folderNodes(db, userId), placedSources(db, userId), { kind: 'folder', id: folderId }, parentId, index);
+  tx(db, () => {
+    db.prepare('UPDATE user_folders SET parent_id = ? WHERE id = ? AND user_id = ?').run(parentId, folderId, userId);
+    writeChildOrder(db, userId, order);
+  });
   return getUserFolder(db, userId, folderId);
 }
 
@@ -348,7 +384,7 @@ export function moveUserFolder(db: Db, userId: number, folderId: number, parentI
  * one) rather than merely un-placing them back to the root.
  */
 export function deleteUserFolder(db: Db, userId: number, folderId: number): void {
-  const nodes = listUserFolders(db, userId).map((f) => ({ id: f.id, name: f.name, position: f.position, parentId: f.parent_id }));
+  const nodes = folderNodes(db, userId);
   const affected = new Set([folderId, ...collectSubtreeIds(nodes, folderId)]);
   const placements = listUserPlacements(db, userId);
   const sourceIds = [...placements.entries()].filter(([, fid]) => fid != null && affected.has(fid)).map(([sid]) => sid);
@@ -367,11 +403,35 @@ export function listUserPlacements(db: Db, userId: number): Map<number, number |
   return new Map(rows.map((row) => [row.source_id, row.folder_id]));
 }
 
-export function setSourcePlacement(db: Db, userId: number, sourceId: number, folderId: number | null): void {
-  db.prepare(
-    `INSERT INTO user_source_placements (user_id, source_id, folder_id) VALUES (?, ?, ?)
-     ON CONFLICT(user_id, source_id) DO UPDATE SET folder_id = excluded.folder_id`,
-  ).run(userId, sourceId, folderId);
+/**
+ * Puts a source in a folder (null = root) at index among that folder's other
+ * children, subfolders and sources alike. Omitted index appends; the root is
+ * not ordered, so an index there is ignored.
+ */
+export function setSourcePlacement(db: Db, userId: number, sourceId: number, folderId: number | null, index?: number): void {
+  tx(db, () => {
+    if (folderId == null || index === undefined) {
+      db.prepare(
+        `INSERT INTO user_source_placements (user_id, source_id, folder_id, position) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, source_id) DO UPDATE SET folder_id = excluded.folder_id, position = excluded.position`,
+      ).run(userId, sourceId, folderId, folderId == null ? 0 : nextChildPosition(db, userId, folderId));
+      return;
+    }
+    db.prepare(
+      `INSERT INTO user_source_placements (user_id, source_id, folder_id) VALUES (?, ?, ?)
+       ON CONFLICT(user_id, source_id) DO UPDATE SET folder_id = excluded.folder_id`,
+    ).run(userId, sourceId, folderId);
+    writeChildOrder(
+      db,
+      userId,
+      siblingOrderAfterMove(folderNodes(db, userId), placedSources(db, userId), { kind: 'source', id: sourceId }, folderId, index),
+    );
+  });
+}
+
+/** sourceId -> position among its folder's children. */
+export function listUserSourcePositions(db: Db, userId: number): Map<number, number> {
+  return new Map(placedSources(db, userId).map((s) => [s.id, s.position]));
 }
 
 /** sourceId -> per-user rename override, for sources that have one. */

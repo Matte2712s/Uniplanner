@@ -4,6 +4,8 @@ import { hasControlOrInvisibleChars } from './textSanitize.ts';
 export const MAX_VIEWS_PER_USER = 30;
 export const MAX_CUSTOM_SOURCES_PER_USER = 10;
 export const MAX_FOLDERS_PER_USER = 20;
+// Upper bound on a sibling slot index; a folder holds subfolders and sources together
+export const MAX_SIBLING_INDEX = 1000;
 export const MAX_VIEW_NAME_LENGTH = 60;
 export const MAX_FOLDER_NAME_LENGTH = 60;
 export const MAX_SOURCE_NAME_LENGTH = 120;
@@ -55,10 +57,14 @@ export const folderInputSchema = z.object({ name: folderNameSchema });
 export const folderPatchSchema = z.object({
   name: folderNameSchema.optional(),
   parentId: z.number().int().positive().nullable().optional(),
+  // Slot among the new parent's other children, subfolders and sources alike (the moved folder not counted); omitted appends
+  index: z.number().int().min(0).max(MAX_SIBLING_INDEX).optional(),
 });
 
 export const sourcePlacementSchema = z.object({
   folderId: z.number().int().positive().nullable(),
+  // Slot among the folder's other children, subfolders and sources alike (the source not counted); omitted appends
+  index: z.number().int().min(0).max(MAX_SIBLING_INDEX).optional(),
 });
 
 export type SourcePlacement = z.infer<typeof sourcePlacementSchema>;
@@ -127,6 +133,8 @@ export interface SourceDto {
   groupPath: string[];
   // Which of the user's own folders this sits in
   folderId: number | null;
+  // Order among its folder's children, shared with the subfolders; meaningless at the root
+  position: number;
   // Per-user rename override (falls back to title/titleEn when null)
   displayName: string | null;
 }

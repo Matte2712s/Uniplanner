@@ -1,14 +1,23 @@
-import { DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, PointerSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
+import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FolderDto, SourceDto, ViewSettings } from '@planner/shared';
-import { buildFolderTree, collectSubtreeIds, folderNameSchema, isSelfOrDescendant, sourceNameSchema } from '@planner/shared';
+import type { FolderDto, PlacedSource, SiblingRef, SourceDto, ViewSettings } from '@planner/shared';
+import {
+  buildFolderTree,
+  childrenOf,
+  collectSubtreeIds,
+  folderNameSchema,
+  isSelfOrDescendant,
+  siblingOrderAfterMove,
+  slotIndex,
+  sourceNameSchema,
+} from '@planner/shared';
 import { usePlanner } from '../state/PlannerContext.tsx';
 import { AddSourceDialog } from './AddSourceDialog.tsx';
 import { DeleteFolderDialog } from './DeleteFolderDialog.tsx';
 import { DeleteSourceDialog } from './DeleteSourceDialog.tsx';
-import { FolderTree } from './FolderTree.tsx';
+import { FolderTree, parseSiblingSlotId, type SlotEdge } from './FolderTree.tsx';
 import { IconFolder } from './icons.tsx';
 import { MoveConfirmDialog } from './MoveConfirmDialog.tsx';
 import { SourceBlock } from './SourceBlock.tsx';
@@ -16,14 +25,26 @@ import { SourceBlock } from './SourceBlock.tsx';
 type DragData = { kind: 'source'; source: SourceDto } | { kind: 'folder'; folder: FolderDto };
 
 type PendingMove =
-  | { kind: 'source'; source: SourceDto; targetFolderId: number | null; targetName: string | null }
-  | { kind: 'folder'; folder: FolderDto; targetFolderId: number | null; targetName: string | null };
+  | { kind: 'source'; source: SourceDto; targetFolderId: number | null; targetName: string | null; index?: number }
+  | { kind: 'folder'; folder: FolderDto; targetFolderId: number | null; targetName: string | null; index?: number };
 
 interface PendingDelete {
   folder: FolderDto;
   subfolderCount: number;
   sourceCount: number;
 }
+
+const siblingKey = (item: SiblingRef) => `${item.kind}:${item.id}`;
+
+// Placed by pointer so the thin before/after slots stay reachable, and a slot wins over the folder header or source it overlaps
+const collisionDetection: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  const slot = hits.find((hit) => parseSiblingSlotId(String(hit.id)));
+  if (slot) return [slot];
+  if (args.active.data.current?.kind === 'folder') return hits;
+  // A dragged source can also drop onto a folder header by overlap alone
+  return rectIntersection({ ...args, droppableContainers: args.droppableContainers.filter((c) => !parseSiblingSlotId(String(c.id))) });
+};
 
 function RootDropZone({ active }: { active: boolean }) {
   const { t } = useTranslation();
@@ -68,6 +89,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     if (bucket) bucket.push(s);
     else sourcesByFolder.set(s.folderId, [s]);
   }
+  const placed: PlacedSource[] = all.map((s) => ({ id: s.id, folderId: s.folderId, position: s.position }));
   const rootDefaults = rootSources.filter((s) => s.kind === 'default');
   const rootCustom = rootSources.filter((s) => s.kind === 'custom');
 
@@ -89,6 +111,32 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     if (data) setDragging(data);
   }
 
+  // Place a folder or source before/after a sibling slot; a different parent is a move, so it still asks first
+  function placeBeside(dragged: DragData, edge: SlotEdge, neighbor: SiblingRef) {
+    const parentId = neighbor.kind === 'folder' ? planner.folders.find((f) => f.id === neighbor.id)?.parentId : all.find((x) => x.id === neighbor.id)?.folderId;
+    if (parentId === undefined) return;
+    // Sources only live in folders; the list below the tree isn't ordered
+    if (dragged.kind === 'source' && parentId == null) return;
+    if (dragged.kind === 'folder' && parentId != null && isSelfOrDescendant(planner.folders, dragged.folder.id, parentId)) return;
+
+    const moved: SiblingRef = dragged.kind === 'folder' ? { kind: 'folder', id: dragged.folder.id } : { kind: 'source', id: dragged.source.id };
+    const index = slotIndex(planner.folders, placed, moved, neighbor, parentId, edge);
+    const currentParentId = dragged.kind === 'folder' ? dragged.folder.parentId : dragged.source.folderId;
+
+    if (parentId !== currentParentId) {
+      const parent = parentId != null ? planner.folders.find((f) => f.id === parentId) : undefined;
+      setPendingMove({ ...dragged, targetFolderId: parentId, targetName: parent?.name ?? null, index });
+      return;
+    }
+    // Reorder within the same parent: skip when it would land where it already is
+    const unchanged =
+      siblingOrderAfterMove(planner.folders, placed, moved, parentId, index).map(siblingKey).join() ===
+      childrenOf(planner.folders, placed, parentId).map(siblingKey).join();
+    if (unchanged) return;
+    if (dragged.kind === 'folder') void planner.moveFolder(dragged.folder.id, parentId, index);
+    else void planner.setSourcePlacement(dragged.source.id, parentId, index);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     setDragging(null);
     const over = event.over;
@@ -96,6 +144,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     if (!over || !data) return;
 
     const overId = String(over.id);
+    const slot = parseSiblingSlotId(overId);
+    if (slot) return placeBeside(data, slot.edge, slot.neighbor);
+
     const targetFolderId = overId === 'root-drop' ? null : overId.startsWith('folder-drop-') ? Number(overId.slice('folder-drop-'.length)) : undefined;
     if (targetFolderId === undefined) return;
     const targetFolder = targetFolderId != null ? planner.folders.find((f) => f.id === targetFolderId) : undefined;
@@ -107,8 +158,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   async function confirmPendingMove() {
     if (!pendingMove) return;
-    if (pendingMove.kind === 'source') await planner.setSourcePlacement(pendingMove.source.id, pendingMove.targetFolderId);
-    else await planner.moveFolder(pendingMove.folder.id, pendingMove.targetFolderId);
+    if (pendingMove.kind === 'source') await planner.setSourcePlacement(pendingMove.source.id, pendingMove.targetFolderId, pendingMove.index);
+    else await planner.moveFolder(pendingMove.folder.id, pendingMove.targetFolderId, pendingMove.index);
     setPendingMove(null);
   }
 
@@ -171,7 +222,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="sidebar-scroll">
         <div className="section-title">{t('sidebar.sources')}</div>
 
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <FolderTree
             nodes={tree}
             sourcesByFolder={sourcesByFolder}

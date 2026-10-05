@@ -121,6 +121,8 @@ const migrations: string[] = [
     fetched_at INTEGER NOT NULL
   );
   `,
+  // Sources order among their folder's subfolders (same position space as user_folders.position)
+  `ALTER TABLE user_source_placements ADD COLUMN position INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export type Db = DatabaseSync;
