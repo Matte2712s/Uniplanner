@@ -23,12 +23,7 @@
           { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "612617b82db4bb0017172839", "title": "Tutti gli insegnamenti", "titleEn": "All courses" }
         ]
       },
-      {
-        "folder": "Magistrale",
-        "children": [
-          { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "613bd49941164e0018f0f1d7" }
-        ]
-      }
+      { "host": "unito.prod.up.cineca.it", "linkCalendarioId": "613bd49941164e0018f0f1d7" }
     ]
   },
   {
