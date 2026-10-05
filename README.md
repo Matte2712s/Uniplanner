@@ -7,6 +7,8 @@ merges several of them into one calendar, and lets you pick which courses
 sources and views across devices; works without an account too (settings
 stay in the browser's local storage).
 
+Live site: <https://uniplanner.duckdns.org>
+
 ## How it works
 
 Cineca's calendar page is a single-page app that never embeds events in
@@ -104,10 +106,18 @@ in `.env.example`.
   CSP (`default-src 'self'`, no inline scripts/styles, `frame-ancestors
   'none'`) is set via `@fastify/helmet`.
 
-## Known follow-ups
+## License
 
-- The production JS bundle is ~590 KB (mostly FullCalendar); splitting
-  it with `build.rollupOptions.output.manualChunks` would improve first
-  load on slow mobile connections.
-- View reordering and renaming use browser `prompt()`/`confirm()` for
-  simplicity; a themed dialog would fit the rest of the UI better.
+Copyright (c) 2026 Matteo Sardi
+
+Licensed under [Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International](https://creativecommons.org/licenses/by-nc-sa/4.0/) (CC BY-NC-SA
+4.0). The full text is in [LICENSE](LICENSE).
+
+- Attribution: give credit to Matteo Sardi, link to the license, and indicate
+  if you made changes.
+- NonCommercial: you may not use the project or derivatives for commercial
+  purposes.
+- ShareAlike: modified versions must be released under the same license.
+
+Third-party dependencies keep their own licenses.

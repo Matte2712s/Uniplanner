@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { MAX_VIEW_NAME_LENGTH } from '@planner/shared';
 import type { View } from '@planner/shared';
 import { usePlanner } from '../state/PlannerContext.tsx';
 import { useDropdown } from '../hooks/useDropdown.ts';
+import { DeleteViewDialog } from './DeleteViewDialog.tsx';
 import {
   IconArrowDown,
   IconArrowUp,
@@ -15,6 +17,7 @@ import {
   IconShare,
   IconTrash,
 } from './icons.tsx';
+import { NameDialog } from './NameDialog.tsx';
 import { ShareViewDialog } from './ShareViewDialog.tsx';
 
 export function ViewSwitcher() {
@@ -22,21 +25,23 @@ export function ViewSwitcher() {
   const planner = usePlanner();
   const { open, setOpen, ref } = useDropdown();
   const [sharing, setSharing] = useState<View | null>(null);
+  const [naming, setNaming] = useState<{ mode: 'new' } | { mode: 'rename'; view: View } | null>(null);
+  const [deleting, setDeleting] = useState<View | null>(null);
 
   function handleNew() {
-    const name = window.prompt(t('views.namePlaceholder'));
-    if (name?.trim()) void planner.createView(name.trim());
+    setNaming({ mode: 'new' });
     setOpen(false);
   }
 
-  function handleRename(id: number, current: string) {
-    const name = window.prompt(t('views.namePlaceholder'), current);
-    if (name?.trim() && name.trim() !== current) void planner.renameView(id, name.trim());
+  function handleNameSubmit(name: string) {
+    if (naming?.mode === 'new') void planner.createView(name);
+    else if (naming?.mode === 'rename' && name !== naming.view.name) void planner.renameView(naming.view.id, name);
+    setNaming(null);
   }
 
-  function handleDelete(id: number, name: string) {
-    if (planner.views.length <= 1) return;
-    if (window.confirm(t('views.deleteConfirm', { name }))) void planner.deleteView(id);
+  function handleDeleteConfirm() {
+    if (deleting && planner.views.length > 1) void planner.deleteView(deleting.id);
+    setDeleting(null);
   }
 
   function move(index: number, dir: -1 | 1) {
@@ -88,7 +93,7 @@ export function ViewSwitcher() {
                   >
                     <IconArrowDown />
                   </button>
-                  <button className="icon-btn icon-btn-sm" title={t('views.rename')} onClick={() => handleRename(v.id, v.name)}>
+                  <button className="icon-btn icon-btn-sm" title={t('views.rename')} onClick={() => setNaming({ mode: 'rename', view: v })}>
                     <IconPencil />
                   </button>
                   <button className="icon-btn icon-btn-sm" title={t('views.duplicate')} onClick={() => void planner.duplicateView(v.id)}>
@@ -102,7 +107,7 @@ export function ViewSwitcher() {
                   <button
                     className="icon-btn icon-btn-sm"
                     title={t('views.delete')}
-                    onClick={() => handleDelete(v.id, v.name)}
+                    onClick={() => setDeleting(v)}
                     disabled={planner.views.length <= 1}
                   >
                     <IconTrash />
@@ -123,6 +128,19 @@ export function ViewSwitcher() {
             </button>
           )}
         </div>
+      )}
+      {naming && (
+        <NameDialog
+          title={naming.mode === 'new' ? t('views.new') : t('views.rename')}
+          label={t('views.namePlaceholder')}
+          initialValue={naming.mode === 'rename' ? naming.view.name : ''}
+          maxLength={MAX_VIEW_NAME_LENGTH}
+          onSubmit={handleNameSubmit}
+          onCancel={() => setNaming(null)}
+        />
+      )}
+      {deleting && (
+        <DeleteViewDialog viewName={deleting.name} onConfirm={handleDeleteConfirm} onCancel={() => setDeleting(null)} />
       )}
       {sharing && (
         <ShareViewDialog

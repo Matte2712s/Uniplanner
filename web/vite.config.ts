@@ -64,5 +64,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Stable vendor chunks stay cached across app deploys
+        manualChunks(id) {
+          if (!id.includes('/node_modules/')) return undefined;
+          if (id.includes('/@fullcalendar/')) return 'fullcalendar';
+          if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
+          return 'vendor';
+        },
+      },
+    },
   },
 });

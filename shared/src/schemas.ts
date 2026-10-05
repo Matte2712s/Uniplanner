@@ -4,6 +4,7 @@ import { hasControlOrInvisibleChars } from './textSanitize.ts';
 export const MAX_VIEWS_PER_USER = 30;
 export const MAX_CUSTOM_SOURCES_PER_USER = 10;
 export const MAX_FOLDERS_PER_USER = 20;
+export const MAX_VIEW_NAME_LENGTH = 60;
 export const MAX_FOLDER_NAME_LENGTH = 60;
 export const MAX_SOURCE_NAME_LENGTH = 120;
 export const MAX_RANGE_DAYS = 45;
@@ -40,7 +41,7 @@ export const viewSettingsSchema = z.object({
     .default({}),
 });
 
-export const viewNameSchema = z.string().trim().min(1).max(60);
+export const viewNameSchema = z.string().trim().min(1).max(MAX_VIEW_NAME_LENGTH);
 
 export const folderNameSchema = z
   .string()
