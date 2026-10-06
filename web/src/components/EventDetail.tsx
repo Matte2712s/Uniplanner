@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { CalendarEventDto } from '@planner/shared';
 import { Dialog } from './Dialog.tsx';
+import { EventMarkerBadges } from './EventMarkers.tsx';
 
 function formatRange(start: string, end: string, locale: string): string {
   const s = new Date(start);
@@ -22,7 +23,7 @@ export function EventDetail({ event, onClose }: { event: CalendarEventDto; onClo
 
       {event.status === 'cancelled' && <p className="error-text">{t('event.cancelled')}</p>}
       {event.status === 'suspended' && <p className="error-text">{t('event.suspended')}</p>}
-      {event.online && <p className="hint">{t('event.online')}</p>}
+      <EventMarkerBadges event={event} />
 
       {event.activity && <p className="hint">{event.activity}</p>}
 

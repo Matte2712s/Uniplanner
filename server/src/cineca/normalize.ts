@@ -43,8 +43,13 @@ export function normalizeEvent(sourceId: number, imp: RawImpegno): CalendarEvent
       building: clean(a.edificio?.descrizione ?? null),
     })),
     status: STATUS_MAP[imp.stato] ?? 'ok',
-    online: Boolean(imp.evento?.online),
+    // Cineca's own TV icon follows the per-lesson teledidattica flag
+    online: Boolean(imp.teledidattica) || Boolean(imp.evento?.online),
     onlineUrl: safeHttpsUrl(imp.linkTeledidattica),
+    offSite: Boolean(imp.attivitaFuoriSede),
+    // Cineca shows exam continuations with the extra lesson icon
+    extra: Boolean(imp.impegnoAggiuntivo) || Boolean(imp.prosecuzioneEsame),
+    makeup: (imp.recuperoPerImpegniId?.length ?? 0) > 0,
     notes: clean(imp.notePubbliche),
     notesEn: clean(imp.notePubbliche_EN),
   };

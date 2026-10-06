@@ -186,6 +186,9 @@ export interface CalendarEventDto {
   status: EventStatus;
   online: boolean;
   onlineUrl: string | null;
+  offSite: boolean;
+  extra: boolean;
+  makeup: boolean;
   notes: string | null;
   notesEn: string | null;
 }

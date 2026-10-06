@@ -156,3 +156,39 @@ export function IconGripVertical(props: SVGProps<SVGSVGElement>) {
     </Svg>
   );
 }
+
+export function IconTv(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="4.5" width="12" height="8" rx="1.5" />
+      <path d="M5.5 2l2.5 2.5L10.5 2" />
+    </Svg>
+  );
+}
+
+export function IconPlusCircle(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 5.5v5M5.5 8h5" />
+    </Svg>
+  );
+}
+
+export function IconRotate(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <path d="M13 8a5 5 0 1 1-1.5-3.5" />
+      <path d="M13 2.5v2.5h-2.5" />
+    </Svg>
+  );
+}
+
+export function IconMapPin(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <path d="M8 14s4.5-3.6 4.5-7a4.5 4.5 0 0 0-9 0c0 3.4 4.5 7 4.5 7z" />
+      <circle cx="8" cy="7" r="1.6" />
+    </Svg>
+  );
+}

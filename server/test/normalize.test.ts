@@ -108,6 +108,50 @@ describe('normalizeEvent hardening against hostile input', () => {
     expect(normalizeEvent(1, suspended).status).toBe('suspended');
   });
 
+  it('flags a lesson as online from teledidattica even with no link and evento.online false', () => {
+    // Shape seen on live Informatica magistrale "Inglese II" lessons
+    const raw = impegnoSchema.parse({
+      ...baseImpegno(),
+      teledidattica: true,
+      linkTeledidattica: '',
+      evento: { online: false },
+    });
+    const event = normalizeEvent(1, raw);
+    expect(event.online).toBe(true);
+    expect(event.onlineUrl).toBeNull();
+  });
+
+  it('keeps the event-level online flag working', () => {
+    const raw = impegnoSchema.parse({ ...baseImpegno(), evento: { online: true } });
+    expect(normalizeEvent(1, raw).online).toBe(true);
+  });
+
+  it('leaves every marker off for a plain lesson', () => {
+    const event = normalizeEvent(1, impegnoSchema.parse(baseImpegno()));
+    expect(event).toMatchObject({ online: false, offSite: false, extra: false, makeup: false });
+  });
+
+  it('maps off-site, extra, exam continuation and make-up flags', () => {
+    expect(normalizeEvent(1, impegnoSchema.parse({ ...baseImpegno(), attivitaFuoriSede: true })).offSite).toBe(true);
+    expect(normalizeEvent(1, impegnoSchema.parse({ ...baseImpegno(), impegnoAggiuntivo: true })).extra).toBe(true);
+    expect(normalizeEvent(1, impegnoSchema.parse({ ...baseImpegno(), prosecuzioneEsame: true })).extra).toBe(true);
+    expect(normalizeEvent(1, impegnoSchema.parse({ ...baseImpegno(), recuperoPerImpegniId: ['a1'] })).makeup).toBe(true);
+    expect(normalizeEvent(1, impegnoSchema.parse({ ...baseImpegno(), recuperoPerImpegniId: [] })).makeup).toBe(false);
+  });
+
+  it('ignores malformed marker flags instead of failing the event', () => {
+    const raw = impegnoSchema.safeParse({
+      ...baseImpegno(),
+      impegnoAggiuntivo: 'yes',
+      recuperoPerImpegniId: 'not-an-array',
+    });
+    expect(raw.success).toBe(true);
+    if (!raw.success) return;
+    const event = normalizeEvent(1, raw.data);
+    expect(event.extra).toBe(false);
+    expect(event.makeup).toBe(false);
+  });
+
   it('rejects a malformed impegno missing required dates', () => {
     const parsed = impegnoSchema.safeParse({ eventoId: 'e1', stato: 'P' });
     expect(parsed.success).toBe(false);

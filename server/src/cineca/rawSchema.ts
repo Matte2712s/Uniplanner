@@ -82,6 +82,10 @@ export const impegnoSchema = z.object({
   nome: nstr(300),
   nome_EN: nstr(300),
   attivitaFuoriSede: z.boolean().optional().catch(false),
+  impegnoAggiuntivo: z.boolean().optional().catch(false),
+  prosecuzioneEsame: z.boolean().optional().catch(false),
+  // Ids of the lessons this one makes up for
+  recuperoPerImpegniId: z.array(z.string().max(64)).max(50).optional().catch(undefined),
   docenti: z.array(personaSchema).max(30).optional().catch([]),
   aule: z.array(aulaSchema).max(20).optional().catch([]),
   tipoAttivita: tipoAttivitaSchema.nullable().optional().catch(null),

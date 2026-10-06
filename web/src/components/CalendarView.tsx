@@ -12,6 +12,7 @@ import { api } from '../api/client.ts';
 import { colorForCourse } from '../lib/color.ts';
 import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { useIsMobile } from '../hooks/useMediaQuery.ts';
+import { EventMarkerIcons, eventMarkers } from './EventMarkers.tsx';
 
 export interface CalendarViewHandle {
   prev(): void;
@@ -107,6 +108,7 @@ export const CalendarView = forwardRef<
         <span className={`event-line${cancelled}`}>
           <span className="event-dot" style={{ background: arg.event.borderColor }} />
           {arg.timeText && <span className="event-line-time">{arg.timeText}</span>}
+          <EventMarkerIcons event={ev} />
           <span className="event-line-title">{arg.event.title}</span>
         </span>
       );
@@ -114,7 +116,12 @@ export const CalendarView = forwardRef<
 
     return (
       <div className={`event-card${cancelled}`}>
-        {arg.timeText && <div className="meta">{arg.timeText}</div>}
+        {(arg.timeText || eventMarkers(ev).length > 0) && (
+          <div className="meta">
+            <EventMarkerIcons event={ev} />
+            {arg.timeText}
+          </div>
+        )}
         <div className="title">{arg.event.title}</div>
         {ev.rooms[0] && <div className="meta">{ev.rooms[0].name}</div>}
       </div>
