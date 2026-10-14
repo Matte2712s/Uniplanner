@@ -7,6 +7,10 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "3000"
+    # Skip the host resolver: Tailscale's 100.100.100.100 hangs DNS when logged out
+    dns:
+      - 192.168.1.19
+      - 1.1.1.1
     volumes:
       - ./data:/app/data
     healthcheck:
