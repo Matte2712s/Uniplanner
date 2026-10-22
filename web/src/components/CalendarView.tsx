@@ -49,6 +49,16 @@ export const CalendarView = forwardRef<
   // off instead of snapping back to today.
   const [anchorDate, setAnchorDate] = useState<Date | undefined>(undefined);
   const mounted = useRef(false);
+  // FC's own nowIndicator only exists in time grids and its list view only
+  // re-renders once a day, so the list's now marker needs its own clock.
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (mode !== 'list') return;
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, [mode]);
 
   useImperativeHandle(ref, () => ({
     prev: () => calRef.current?.getApi().prev(),
@@ -126,6 +136,14 @@ export const CalendarView = forwardRef<
         {ev.rooms[0] && <div className="meta">{ev.rooms[0].name}</div>}
       </div>
     );
+  }
+
+  // Tag today's list rows by start time; rows are already sorted by start,
+  // so CSS can draw the now marker where started meets upcoming.
+  function eventClassNames(arg: EventContentArg) {
+    if (arg.view.type !== 'listWeek' || !arg.isToday) return [];
+    const started = arg.event.start !== null && arg.event.start <= now;
+    return [started ? 'list-today-started' : 'list-today-upcoming'];
   }
 
   const eventsQuery = useQuery({
@@ -209,6 +227,7 @@ export const CalendarView = forwardRef<
           views={{ dayGridMonth: { eventDisplay: 'list-item' } }}
           events={events}
           eventContent={eventContent}
+          eventClassNames={eventClassNames}
           eventClick={(arg) => onEventClick(arg.event.extendedProps.dto as CalendarEventDto)}
           datesSet={(arg) => {
             onTitleChange(arg.view.title);

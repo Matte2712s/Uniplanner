@@ -1078,6 +1078,62 @@ a {
   font-size: 16px;
 }
 
+/* List view today: rows share the grid views' today tint, the day header
+   gets a stronger one. Opaque mix, since the header is sticky. */
+.fc .fc-list-day.fc-day-today .fc-list-day-cushion {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+}
+
+.fc .list-today-started > td,
+.fc .list-today-upcoming > td {
+  background: var(--fc-today-bg-color);
+}
+
+/* Keep sticky day headers above the positioned now-marker cells below */
+.fc .fc-list-sticky .fc-list-day > * {
+  z-index: 2;
+}
+
+/* List view now marker, mirroring FC's time-grid nowIndicator (line plus
+   arrow): under the last of today's started events, or above the first
+   one when none has started yet. Drawn inside the row, since a sticky
+   day header next to it would cover anything straddling the edge. */
+.fc .list-today-started:not(:has(+ .list-today-started)) > td,
+.fc .fc-day-today + .list-today-upcoming > td {
+  position: relative;
+}
+
+.fc .list-today-started:not(:has(+ .list-today-started)) > td::after,
+.fc .fc-day-today + .list-today-upcoming > td::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--fc-now-indicator-color);
+  pointer-events: none;
+}
+
+.fc .list-today-started:not(:has(+ .list-today-started)) > td:first-child::before,
+.fc .fc-day-today + .list-today-upcoming > td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  border-style: solid;
+  border-color: transparent transparent transparent var(--fc-now-indicator-color);
+  border-width: 5px 0 5px 6px;
+  pointer-events: none;
+}
+
+.fc .list-today-started:not(:has(+ .list-today-started)) > td::after,
+.fc .list-today-started:not(:has(+ .list-today-started)) > td:first-child::before {
+  bottom: 0;
+}
+
+.fc .fc-day-today + .list-today-upcoming > td::after,
+.fc .fc-day-today + .list-today-upcoming > td:first-child::before {
+  top: 0;
+}
+
 /* Belt and suspenders: FC positions/colors the event box itself, but make
    sure our own content can never visually spill past its edges either. */
 .fc-event,
