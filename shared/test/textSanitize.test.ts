@@ -22,7 +22,31 @@ describe('hasControlOrInvisibleChars', () => {
     ['left-to-right mark', 'Primo‎anno'],
     ['bidi override', 'Primo‮anno'],
     ['isolate', 'Primo⁦anno'],
+    ['soft hyphen', 'Primo­anno'],
+    ['arabic letter mark', 'Primo؜anno'],
+    ['mongolian vowel separator', 'Primo᠎anno'],
+    ['line separator', 'Primo anno'],
+    ['paragraph separator', 'Primo anno'],
+    ['word joiner', 'Primo⁠anno'],
+    ['invisible plus', 'Primo⁤anno'],
+    ['BOM', '﻿Primo'],
   ])('rejects %s', (_label, value) => {
     expect(hasControlOrInvisibleChars(value)).toBe(true);
+  });
+
+  describe('allowNewline', () => {
+    it('accepts LF', () => {
+      expect(hasControlOrInvisibleChars('Primo\nanno', { allowNewline: true })).toBe(false);
+    });
+
+    it.each<[string, string]>([
+      ['CR', 'Primo\r\nanno'],
+      ['tab', 'Primo\tanno'],
+      ['null byte', 'Primo\x00anno'],
+      ['bidi override', 'Primo\n‮anno'],
+      ['line separator', 'Primo anno'],
+    ])('still rejects %s', (_label, value) => {
+      expect(hasControlOrInvisibleChars(value, { allowNewline: true })).toBe(true);
+    });
   });
 });

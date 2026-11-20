@@ -4,6 +4,9 @@ import { hasControlOrInvisibleChars } from './textSanitize.ts';
 export const MAX_VIEWS_PER_USER = 30;
 export const MAX_CUSTOM_SOURCES_PER_USER = 10;
 export const MAX_FOLDERS_PER_USER = 20;
+// A recurring event counts once, however many weekly slots it has
+export const MAX_CUSTOM_EVENTS_PER_USER = 200;
+export const MAX_EVENT_LABELS_PER_USER = 30;
 // Upper bound on a sibling slot index; a folder holds subfolders and sources together
 export const MAX_SIBLING_INDEX = 1000;
 export const MAX_VIEW_NAME_LENGTH = 60;
@@ -32,6 +35,13 @@ export const viewSourceSchema = z.object({
 
 export const calendarModeSchema = z.enum(['week', 'day', 'month', 'list']);
 
+export const viewCustomEventsSchema = z.object({
+  show: z.boolean().default(true),
+  hiddenLabels: z.array(z.number().int().positive()).max(MAX_EVENT_LABELS_PER_USER).default([]),
+  // Opt-in: expose this view's custom events through its public share link
+  shareInLink: z.boolean().default(false),
+});
+
 export const viewSettingsSchema = z.object({
   sources: z.array(viewSourceSchema).max(20).default([]),
   calendarMode: calendarModeSchema.default('week'),
@@ -41,6 +51,7 @@ export const viewSettingsSchema = z.object({
     .record(courseKeySchema, hexColorSchema)
     .refine((r) => Object.keys(r).length <= 500, 'too many colors')
     .default({}),
+  customEvents: viewCustomEventsSchema.default({}),
 });
 
 export const viewNameSchema = z.string().trim().min(1).max(MAX_VIEW_NAME_LENGTH);
@@ -103,6 +114,7 @@ export const eventsQuerySchema = z.object({
 
 export type ViewSource = z.infer<typeof viewSourceSchema>;
 export type ViewSettings = z.infer<typeof viewSettingsSchema>;
+export type ViewCustomEvents = z.infer<typeof viewCustomEventsSchema>;
 export type CalendarMode = z.infer<typeof calendarModeSchema>;
 export type Lang = z.infer<typeof langSchema>;
 

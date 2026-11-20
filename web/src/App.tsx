@@ -1,14 +1,60 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CalendarEventDto, CalendarMode } from '@planner/shared';
-import { CalendarView, type CalendarViewHandle } from './components/CalendarView.tsx';
+import type { CalendarEventDto, CalendarMode, CustomEventDto, CustomEventOccurrence } from '@planner/shared';
+import {
+  CalendarView,
+  type CalendarCustomEvent,
+  type CalendarViewHandle,
+  type SlotSelection,
+} from './components/CalendarView.tsx';
+import { CustomEventDetail } from './components/CustomEventDetail.tsx';
+import { CustomEventDialog } from './components/CustomEventDialog.tsx';
 import { EventDetail } from './components/EventDetail.tsx';
 import { ImportGuestViewsDialog } from './components/ImportGuestViewsDialog.tsx';
+import { ManageEventsDialog } from './components/ManageEventsDialog.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TopBar } from './components/TopBar.tsx';
 import { useIsMobile } from './hooks/useMediaQuery.ts';
 import { useResizableSidebar } from './hooks/useResizableSidebar.ts';
+import { addDays, localDateString, localTimeString } from './lib/customEventFormat.ts';
+import type { CustomEventDraft } from './lib/customEventForm.ts';
 import { usePlanner } from './state/PlannerContext.tsx';
+
+interface EditorState {
+  initial: CustomEventDto | null;
+  draft?: CustomEventDraft;
+}
+
+// Drag selections arrive as browser-zone dates; an all-day end is exclusive
+function draftFromSelection(selection: SlotSelection): CustomEventDraft {
+  const startDate = localDateString(selection.start);
+  if (selection.allDay) {
+    return { schedule: { kind: 'allDay', startDate, endDate: addDays(localDateString(selection.end), -1) } };
+  }
+  return {
+    schedule: {
+      kind: 'once',
+      startDate,
+      startTime: localTimeString(selection.start),
+      endDate: localDateString(selection.end),
+      endTime: localTimeString(selection.end),
+    },
+  };
+}
+
+// A copy has no id, so saving it creates a new event
+function draftFromEvent(event: CustomEventDto): CustomEventDraft {
+  return {
+    title: event.title,
+    notes: event.notes,
+    location: event.location,
+    url: event.url,
+    labelId: event.labelId,
+    color: event.color,
+    timeZone: event.timeZone,
+    schedule: event.schedule,
+  };
+}
 
 export function App() {
   const { t } = useTranslation();
@@ -21,6 +67,9 @@ export function App() {
   // mobile (an overlay drawer) - the hamburger toggles either the same way.
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia('(max-width: 767px)').matches);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDto | null>(null);
+  const [selectedCustom, setSelectedCustom] = useState<{ event: CalendarCustomEvent; occurrence: CustomEventOccurrence } | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const settings = planner.activeView?.settings;
   if (!settings) {
@@ -36,6 +85,17 @@ export function App() {
 
   function closeSidebarOnMobile() {
     if (isMobile) setSidebarOpen(false);
+  }
+
+  function openEditor(next: EditorState) {
+    setSelectedCustom(null);
+    setManageOpen(false);
+    setEditor(next);
+  }
+
+  // The detail holds a calendar snapshot; editing needs the stored event
+  function storedEvent(event: CalendarCustomEvent): CustomEventDto | undefined {
+    return planner.customEvents.find((e) => e.id === event.id);
   }
 
   function onModeChange(mode: CalendarMode) {
@@ -70,7 +130,17 @@ export function App() {
               : undefined
           }
         >
-          <Sidebar onNavigate={closeSidebarOnMobile} />
+          <Sidebar
+            onNavigate={closeSidebarOnMobile}
+            onNewEvent={() => {
+              closeSidebarOnMobile();
+              openEditor({ initial: null });
+            }}
+            onManageEvents={() => {
+              closeSidebarOnMobile();
+              setManageOpen(true);
+            }}
+          />
         </div>
         {!isMobile && sidebarOpen && (
           <div
@@ -95,12 +165,40 @@ export function App() {
               onModeChange={onModeChange}
               onTitleChange={setTitle}
               onEventClick={setSelectedEvent}
+              customEvents={{ events: planner.customEvents, labels: planner.eventLabels }}
+              onCustomEventClick={(event, occurrence) => setSelectedCustom({ event, occurrence })}
+              onSlotSelect={(selection) => openEditor({ initial: null, draft: draftFromSelection(selection) })}
             />
           </div>
         </div>
       </div>
 
       {selectedEvent && <EventDetail event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
+
+      {selectedCustom && (
+        <CustomEventDetail
+          event={selectedCustom.event}
+          occurrence={selectedCustom.occurrence}
+          labels={planner.eventLabels}
+          onClose={() => setSelectedCustom(null)}
+          onEdit={() => {
+            const stored = storedEvent(selectedCustom.event);
+            if (stored) openEditor({ initial: stored });
+            else setSelectedCustom(null);
+          }}
+          onDuplicate={() => {
+            const stored = storedEvent(selectedCustom.event);
+            if (stored) openEditor({ initial: null, draft: draftFromEvent(stored) });
+            else setSelectedCustom(null);
+          }}
+        />
+      )}
+
+      {manageOpen && (
+        <ManageEventsDialog onClose={() => setManageOpen(false)} onEdit={(event) => openEditor({ initial: event })} />
+      )}
+
+      {editor && <CustomEventDialog initial={editor.initial} draft={editor.draft} onClose={() => setEditor(null)} />}
     </div>
   );
 }

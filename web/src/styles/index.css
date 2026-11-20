@@ -48,7 +48,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -608,20 +609,237 @@ a {
   margin-bottom: 10px;
 }
 
-.field label {
+.field label,
+.field .field-label {
   font-size: 12px;
   color: var(--text-muted);
 }
 
 .field input[type='text'],
 .field input[type='email'],
-.field input[type='url'] {
+.field input[type='url'],
+.field input[type='date'],
+.field input[type='time'],
+.field input[type='color'],
+.field select,
+.field textarea {
   min-height: 44px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
+}
+
+/* Native pickers follow the system theme, so their icons stay visible in dark mode */
+.field input[type='date'],
+.field input[type='time'],
+.field select {
+  color-scheme: light dark;
+}
+
+.field input[type='date'],
+.field input[type='time'],
+.field select,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.field [aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row > .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-action-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.input-action-row input {
+  flex: 1;
+}
+
+.segmented-full {
+  display: flex;
+  width: 100%;
+}
+
+.segmented-full button {
+  flex: 1;
+}
+
+.dialog.dialog-wide {
+  max-width: 520px;
+}
+
+/* One weekly time slot: weekday, start, end, remove */
+.slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.slot-row select {
+  flex: 1 1 140px;
+}
+
+.slot-row input[type='time'] {
+  flex: 1 1 100px;
+}
+
+.slot-row .icon-btn {
+  flex: none;
+}
+
+/* Color choice: radiogroup of swatches plus a native picker for other colors */
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.color-swatch {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Larger touch target than the visible circle */
+.color-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.color-swatch:focus-visible,
+.color-custom input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Ring plus a check mark, so the selection does not rely on color alone */
+.color-swatch[aria-checked='true'],
+.color-custom.selected input {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--text);
+}
+
+.color-swatch-none {
+  background: linear-gradient(135deg, var(--surface) 45%, var(--text-muted) 45%, var(--text-muted) 55%, var(--surface) 55%);
+  color: var(--text);
+}
+
+.field .color-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.field .color-custom input[type='color'] {
+  width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.color-custom input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-custom input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.color-custom input[type='color']::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.event-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.event-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-row-title {
+  font-weight: 600;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.program-row .event-dot {
+  width: 10px;
+  height: 10px;
+  margin: 0;
+}
+
+.dialog h2 .event-dot {
+  width: 10px;
+  height: 10px;
+  margin: 0 8px 1px 0;
+  vertical-align: middle;
+}
+
+/* Sidebar label list */
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 40px;
+}
+
+.label-row .checkbox-row {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.label-row .label-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .share-link-row {
@@ -749,6 +967,7 @@ a {
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
@@ -759,7 +978,8 @@ a {
     align-items: flex-end;
     padding: 0;
   }
-  .dialog {
+  .dialog,
+  .dialog.dialog-wide {
     max-width: none;
     width: 100%;
     border-radius: var(--radius) var(--radius) 0 0;

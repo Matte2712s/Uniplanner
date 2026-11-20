@@ -11,6 +11,7 @@ import { purgeExpiredSessions } from './db/repo.ts';
 import { env, googleEnabled } from './env.ts';
 import { registerAdminRoutes } from './routes/admin.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
+import { registerCustomEventRoutes } from './routes/customEvents.ts';
 import { registerFolderRoutes } from './routes/folders.ts';
 import { registerProgramRoutes } from './routes/programs.ts';
 import { registerSharedViewRoutes } from './routes/shared.ts';
@@ -75,6 +76,7 @@ registerProgramRoutes(app, db);
 registerViewRoutes(app, db);
 registerPrefsRoutes(app, db);
 registerEventRoutes(app, db);
+registerCustomEventRoutes(app, db);
 registerSharedViewRoutes(app, db);
 registerAdminRoutes(app, db);
 
