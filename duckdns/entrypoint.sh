@@ -22,7 +22,7 @@ echo "duckdns: updating $DUCKDNS_SUBDOMAIN.duckdns.org every 5 minutes"
 # crond doesn't relay a job's own stdout/stderr to its own by default, so
 # redirect to crond's (PID 1's) fds to get every run's output into `docker
 # logs` instead of only into duck.log.
-echo "*/5 * * * * /duckdns/duck.sh >>/proc/1/fd/1 2>>/proc/1/fd/2" > /etc/crontabs/root
+echo "*/5 * * * * /duckdns/duck.sh --jitter >>/proc/1/fd/1 2>>/proc/1/fd/2" > /etc/crontabs/root
 
 /duckdns/duck.sh
 exec crond -f -l 8
