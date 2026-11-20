@@ -23,6 +23,7 @@ import { ErrorDialog } from './ErrorDialog.tsx';
 import { FolderTree, parseSiblingSlotId, type SlotEdge } from './FolderTree.tsx';
 import { IconFolder } from './icons.tsx';
 import { MoveConfirmDialog } from './MoveConfirmDialog.tsx';
+import { MyEventsSection } from './MyEventsSection.tsx';
 import { NameDialog } from './NameDialog.tsx';
 import { SourceBlock } from './SourceBlock.tsx';
 
@@ -63,7 +64,15 @@ function RootDropZone({ active }: { active: boolean }) {
   );
 }
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function Sidebar({
+  onNavigate,
+  onNewEvent,
+  onManageEvents,
+}: {
+  onNavigate?: () => void;
+  onNewEvent: () => void;
+  onManageEvents: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const planner = usePlanner();
   const [addOpen, setAddOpen] = useState(false);
@@ -296,6 +305,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             + {t('folders.new')}
           </button>
         </div>
+
+        <MyEventsSection settings={settings} onNewEvent={onNewEvent} onManageEvents={onManageEvents} />
 
         <div className="section-title">{t('sidebar.options')}</div>
         <label className="checkbox-row" style={{ marginBottom: 8 }}>

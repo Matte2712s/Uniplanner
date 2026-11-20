@@ -1,5 +1,29 @@
-import type { Lang, PlacedSource, ProgramDto, SiblingRef, SourceDto, View, ViewSettings } from '@planner/shared';
-import { childrenOf, collectSubtreeIds, defaultViewSettings, isSelfOrDescendant, siblingOrderAfterMove } from '@planner/shared';
+import type {
+  CustomEventData,
+  CustomEventDto,
+  EventLabelDto,
+  EventLabelInput,
+  Lang,
+  PlacedSource,
+  ProgramDto,
+  SiblingRef,
+  SourceDto,
+  View,
+  ViewSettings,
+} from '@planner/shared';
+import {
+  childrenOf,
+  collectSubtreeIds,
+  customEventInputSchema,
+  defaultViewSettings,
+  eventLabelInputSchema,
+  isSelfOrDescendant,
+  MAX_CUSTOM_EVENTS_PER_USER,
+  MAX_EVENT_LABELS_PER_USER,
+  siblingOrderAfterMove,
+  viewCustomEventsSchema,
+  viewSettingsSchema,
+} from '@planner/shared';
 
 const KEY = 'planner.guest.v1';
 const IMPORTED_KEY = 'planner.guest.imported';
@@ -27,16 +51,96 @@ interface GuestState {
   addedDefaultIds: number[];
   // sourceId -> per-user rename override
   customNames: Record<number, string>;
+  customEvents: CustomEventDto[];
+  eventLabels: EventLabelDto[];
+  nextEventId: number;
+  nextLabelId: number;
 }
+
+function isPositiveInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Stored settings predate newer fields and may be tampered with: re-parse to get defaults. */
+function normalizeSettings(raw: unknown): ViewSettings {
+  const parsed = viewSettingsSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  if (!isRecord(raw)) return defaultViewSettings();
+  // Keep the guest's sources and courses (never validated before) rather than
+  // wiping them; only the custom-events field is rebuilt
+  const customEvents = viewCustomEventsSchema.safeParse(raw.customEvents ?? {});
+  return {
+    ...defaultViewSettings(),
+    ...raw,
+    customEvents: customEvents.success ? customEvents.data : defaultViewSettings().customEvents,
+  } as ViewSettings;
+}
+
+/** Keeps only valid labels with unique ids, up to the per-user cap. */
+function normalizeLabels(raw: unknown): EventLabelDto[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  const labels: EventLabelDto[] = [];
+  for (const item of raw) {
+    if (labels.length >= MAX_EVENT_LABELS_PER_USER) break;
+    if (!isRecord(item) || !isPositiveInt(item.id) || seen.has(item.id)) continue;
+    const parsed = eventLabelInputSchema.safeParse({ name: item.name, color: item.color });
+    if (!parsed.success) continue;
+    seen.add(item.id);
+    labels.push({ id: item.id, ...parsed.data });
+  }
+  return labels;
+}
+
+/** Keeps only valid events with unique ids, up to the per-user cap; dangling label references become null. */
+function normalizeEvents(raw: unknown, labelIds: ReadonlySet<number>): CustomEventDto[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  const events: CustomEventDto[] = [];
+  for (const item of raw) {
+    if (events.length >= MAX_CUSTOM_EVENTS_PER_USER) break;
+    if (!isRecord(item)) continue;
+    // The input schema is strict, so the DTO-only fields must not reach it
+    const { id, updatedAt, ...fields } = item;
+    if (!isPositiveInt(id) || seen.has(id)) continue;
+    const parsed = customEventInputSchema.safeParse(fields);
+    if (!parsed.success) continue;
+    seen.add(id);
+    const { labelId } = parsed.data;
+    events.push({
+      ...parsed.data,
+      labelId: labelId !== null && labelIds.has(labelId) ? labelId : null,
+      id,
+      updatedAt: typeof updatedAt === 'string' ? updatedAt : new Date().toISOString(),
+    });
+  }
+  return events;
+}
+
+function nextIdAfter(stored: unknown, items: readonly { id: number }[]): number {
+  const floor = isPositiveInt(stored) ? stored : 1;
+  return Math.max(floor, ...items.map((i) => i.id + 1));
+}
+
+// Normalizing every stored event is costly and read() runs several times per render
+let cache: { raw: string; state: GuestState } | null = null;
 
 function read(): GuestState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return seed();
+    if (cache?.raw === raw) return cache.state;
     const parsed = JSON.parse(raw) as GuestState;
     if (!Array.isArray(parsed.views) || parsed.views.length === 0) return seed();
-    return {
+    const eventLabels = normalizeLabels(parsed.eventLabels);
+    const customEvents = normalizeEvents(parsed.customEvents, new Set(eventLabels.map((l) => l.id)));
+    const state: GuestState = {
       ...parsed,
+      views: parsed.views.map((v) => ({ ...v, settings: normalizeSettings(v.settings) })),
       customSources: parsed.customSources ?? [],
       folders: (parsed.folders ?? []).map((f) => ({ ...f, parentId: f.parentId ?? null })),
       nextFolderId: parsed.nextFolderId ?? 1,
@@ -44,7 +148,13 @@ function read(): GuestState {
       positions: parsed.positions ?? {},
       addedDefaultIds: parsed.addedDefaultIds ?? [],
       customNames: parsed.customNames ?? {},
+      customEvents,
+      eventLabels,
+      nextEventId: nextIdAfter(parsed.nextEventId, customEvents),
+      nextLabelId: nextIdAfter(parsed.nextLabelId, eventLabels),
     };
+    cache = { raw, state };
+    return state;
   } catch {
     return seed();
   }
@@ -71,6 +181,10 @@ function seed(): GuestState {
     positions: {},
     addedDefaultIds: [],
     customNames: {},
+    customEvents: [],
+    eventLabels: [],
+    nextEventId: 1,
+    nextLabelId: 1,
   };
 }
 
@@ -92,6 +206,7 @@ export function hasGuestData(): boolean {
   }
   const state = read();
   if (state.customSources.length > 0 || state.folders.length > 0 || state.addedDefaultIds.length > 0) return true;
+  if (state.customEvents.length > 0 || state.eventLabels.length > 0) return true;
   if (state.views.length !== 1) return true;
   const view = state.views[0];
   if (!view) return false;
@@ -161,6 +276,11 @@ function applyChildOrder(
     folders: folders.map((f) => (folderPositions.has(f.id) ? { ...f, position: folderPositions.get(f.id)! } : f)),
     positions: nextPositions,
   };
+}
+
+/** Mirrors the server: an event may only reference one of the guest's own labels. */
+function assertLabelExists(state: GuestState, labelId: number | null): void {
+  if (labelId !== null && !state.eventLabels.some((l) => l.id === labelId)) throw new Error('invalid_label');
 }
 
 export const guestStore = {
@@ -408,5 +528,68 @@ export const guestStore = {
   resolvePrograms(programs: ProgramDto[]): ProgramDto[] {
     const added = new Set(read().addedDefaultIds);
     return programs.map((p) => ({ ...p, added: p.sources.every((s) => added.has(s.id)) }));
+  },
+
+  createCustomEvent(data: CustomEventData): CustomEventDto {
+    const state = read();
+    if (state.customEvents.length >= MAX_CUSTOM_EVENTS_PER_USER) throw new Error('too_many_custom_events');
+    assertLabelExists(state, data.labelId);
+    const event: CustomEventDto = { ...data, id: state.nextEventId, updatedAt: new Date().toISOString() };
+    write({ ...state, customEvents: [...state.customEvents, event], nextEventId: state.nextEventId + 1 });
+    return event;
+  },
+
+  /** Full replace, like the server's PUT; a missing event is a no-op. */
+  updateCustomEvent(id: number, data: CustomEventData): void {
+    const state = read();
+    if (!state.customEvents.some((e) => e.id === id)) return;
+    assertLabelExists(state, data.labelId);
+    const updatedAt = new Date().toISOString();
+    write({ ...state, customEvents: state.customEvents.map((e) => (e.id === id ? { ...data, id, updatedAt } : e)) });
+  },
+
+  deleteCustomEvent(id: number): void {
+    const state = read();
+    write({ ...state, customEvents: state.customEvents.filter((e) => e.id !== id) });
+  },
+
+  createEventLabel(input: EventLabelInput): EventLabelDto {
+    const state = read();
+    if (state.eventLabels.length >= MAX_EVENT_LABELS_PER_USER) throw new Error('too_many_event_labels');
+    const label: EventLabelDto = { id: state.nextLabelId, name: input.name, color: input.color };
+    write({ ...state, eventLabels: [...state.eventLabels, label], nextLabelId: state.nextLabelId + 1 });
+    return label;
+  },
+
+  updateEventLabel(id: number, input: EventLabelInput): void {
+    const state = read();
+    write({
+      ...state,
+      eventLabels: state.eventLabels.map((l) => (l.id === id ? { ...l, name: input.name, color: input.color } : l)),
+    });
+  },
+
+  /** Events keep existing without a label, and no view keeps the label hidden. */
+  deleteEventLabel(id: number): void {
+    const state = read();
+    write({
+      ...state,
+      eventLabels: state.eventLabels.filter((l) => l.id !== id),
+      customEvents: state.customEvents.map((e) => (e.labelId === id ? { ...e, labelId: null } : e)),
+      views: state.views.map((v) =>
+        v.settings.customEvents.hiddenLabels.includes(id)
+          ? {
+              ...v,
+              settings: {
+                ...v.settings,
+                customEvents: {
+                  ...v.settings.customEvents,
+                  hiddenLabels: v.settings.customEvents.hiddenLabels.filter((labelId) => labelId !== id),
+                },
+              },
+            }
+          : v,
+      ),
+    });
   },
 };

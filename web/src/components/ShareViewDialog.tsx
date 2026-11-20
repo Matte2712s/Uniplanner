@@ -38,6 +38,24 @@ export function ShareViewDialog({ view, onClose }: { view: View; onClose: () => 
       <h2>{t('share.title')}</h2>
       <p className="hint">{t('share.description')}</p>
 
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={view.settings.customEvents.shareInLink}
+          disabled={busy}
+          onChange={(e) =>
+            void withBusy(() =>
+              planner.updateViewSettings(view.id, {
+                ...view.settings,
+                customEvents: { ...view.settings.customEvents, shareInLink: e.target.checked },
+              }),
+            )
+          }
+        />
+        {t('share.includeEvents')}
+      </label>
+      <p className="hint">{t('share.includeEventsHint')}</p>
+
       {link ? (
         <>
           <div className="field">

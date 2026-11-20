@@ -2,8 +2,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FolderDto, Lang, MeDto, ProgramDto, SourceDto, View, ViewSettings } from '@planner/shared';
-import { defaultViewSettings, MAX_FOLDERS_PER_USER, MAX_VIEWS_PER_USER } from '@planner/shared';
+import type {
+  CustomEventData,
+  CustomEventDto,
+  EventLabelDto,
+  EventLabelInput,
+  FolderDto,
+  Lang,
+  MeDto,
+  ProgramDto,
+  SourceDto,
+  View,
+  ViewSettings,
+} from '@planner/shared';
+import {
+  customEventInputSchema,
+  defaultViewSettings,
+  MAX_CUSTOM_EVENTS_PER_USER,
+  MAX_EVENT_EXCEPTIONS,
+  MAX_EVENT_LABELS_PER_USER,
+  MAX_FOLDERS_PER_USER,
+  MAX_VIEWS_PER_USER,
+} from '@planner/shared';
 import { api } from '../api/client.ts';
 import { clearGuestData, guestStore, hasGuestData, markImportHandled, wasImportOffered } from '../lib/guestStore.ts';
 
@@ -41,6 +61,8 @@ interface PlannerState {
   createView(name: string, settings?: ViewSettings): Promise<void>;
   renameView(id: number, name: string): Promise<void>;
   updateActiveViewSettings(settings: ViewSettings): Promise<void>;
+  // For a view that may not be the active one (e.g. the share dialog)
+  updateViewSettings(id: number, settings: ViewSettings): Promise<void>;
   duplicateView(id: number): Promise<void>;
   deleteView(id: number): Promise<void>;
   reorderViews(order: number[]): Promise<void>;
@@ -48,12 +70,43 @@ interface PlannerState {
   shareView(id: number): Promise<void>;
   unshareView(id: number): Promise<void>;
 
+  customEvents: CustomEventDto[];
+  customEventsAtLimit: boolean;
+  createCustomEvent(data: CustomEventData): Promise<CustomEventDto>;
+  updateCustomEvent(id: number, data: CustomEventData): Promise<void>;
+  deleteCustomEvent(id: number): Promise<void>;
+  // Adds a date to a weekly event's exceptions; rejects with 'too_many_exceptions' at the cap
+  skipOccurrence(eventId: number, date: string): Promise<void>;
+  eventLabels: EventLabelDto[];
+  labelsAtLimit: boolean;
+  createEventLabel(data: EventLabelInput): Promise<EventLabelDto>;
+  updateEventLabel(id: number, data: EventLabelInput): Promise<void>;
+  deleteEventLabel(id: number): Promise<void>;
+
   pendingImport: { count: number } | null;
   confirmImport(): Promise<void>;
   skipImport(): void;
 }
 
 const Ctx = createContext<PlannerState | null>(null);
+
+// Stable references so consumers can use these lists as memo dependencies
+const NO_EVENTS: CustomEventDto[] = [];
+const NO_LABELS: EventLabelDto[] = [];
+
+/** Strips the server-assigned fields, since the input schema is strict. */
+function toEventData(event: CustomEventDto): CustomEventData {
+  return {
+    title: event.title,
+    notes: event.notes,
+    location: event.location,
+    url: event.url,
+    labelId: event.labelId,
+    color: event.color,
+    timeZone: event.timeZone,
+    schedule: event.schedule,
+  };
+}
 
 export function usePlanner(): PlannerState {
   const ctx = useContext(Ctx);
@@ -72,6 +125,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const sourcesQuery = useQuery({ queryKey: ['sources'], queryFn: api.sources });
   const serverQuery = useQuery({ queryKey: ['views'], queryFn: api.views, enabled: authed });
   const prefsQuery = useQuery({ queryKey: ['prefs'], queryFn: api.prefs, enabled: authed });
+  const customEventsQuery = useQuery({ queryKey: ['custom-events'], queryFn: api.customEvents, enabled: authed });
 
   // Guest state is plain localStorage, mirrored into React state so writes re-render.
   const [guest, setGuest] = useState(() => guestStore.get());
@@ -144,6 +198,34 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     mutationFn: (id: number) => api.unshareView(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['views'] }),
   });
+  const createCustomEventMutation = useMutation({
+    mutationFn: (data: CustomEventData) => api.createCustomEvent(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-events'] }),
+  });
+  const updateCustomEventMutation = useMutation({
+    mutationFn: (input: { id: number; data: CustomEventData }) => api.updateCustomEvent(input.id, input.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-events'] }),
+  });
+  const deleteCustomEventMutation = useMutation({
+    mutationFn: (id: number) => api.deleteCustomEvent(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-events'] }),
+  });
+  const createEventLabelMutation = useMutation({
+    mutationFn: (data: EventLabelInput) => api.createEventLabel(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-events'] }),
+  });
+  const updateEventLabelMutation = useMutation({
+    mutationFn: (input: { id: number; data: EventLabelInput }) => api.updateEventLabel(input.id, input.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-events'] }),
+  });
+  const deleteEventLabelMutation = useMutation({
+    mutationFn: (id: number) => api.deleteEventLabel(id),
+    // The server also unhides the label in every view's settings.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['custom-events'] });
+      qc.invalidateQueries({ queryKey: ['views'] });
+    },
+  });
   const setActivePrefMutation = useMutation({
     mutationFn: (id: number) => api.setPrefs({ activeViewId: id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['prefs'] }),
@@ -196,6 +278,26 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   });
 
   const programs = authed ? (sourcesQuery.data?.programs ?? []) : guestStore.resolvePrograms(sourcesQuery.data?.programs ?? []);
+
+  const customEvents = authed ? (customEventsQuery.data?.events ?? NO_EVENTS) : guest.customEvents;
+  const eventLabels = authed ? (customEventsQuery.data?.labels ?? NO_LABELS) : guest.eventLabels;
+
+  const updateCustomEvent = async (id: number, data: CustomEventData) => {
+    if (authed) {
+      await updateCustomEventMutation.mutateAsync({ id, data });
+    } else {
+      guestStore.updateCustomEvent(id, data);
+      refreshGuest();
+    }
+  };
+
+  const updateViewSettings = async (id: number, settings: ViewSettings) => {
+    if (authed) await updateViewMutation.mutateAsync({ id, patch: { settings } });
+    else {
+      guestStore.updateView(id, { settings });
+      refreshGuest();
+    }
+  };
 
   const value: PlannerState = {
     user,
@@ -334,12 +436,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     },
     updateActiveViewSettings: async (settings) => {
       if (!activeView) return;
-      if (authed) await updateViewMutation.mutateAsync({ id: activeView.id, patch: { settings } });
-      else {
-        guestStore.updateView(activeView.id, { settings });
-        refreshGuest();
-      }
+      await updateViewSettings(activeView.id, settings);
     },
+    updateViewSettings,
     duplicateView: async (id) => {
       const source = views.find((v) => v.id === id);
       if (!source) return;
@@ -376,13 +475,76 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       await unshareViewMutation.mutateAsync(id);
     },
 
+    customEvents,
+    customEventsAtLimit: customEvents.length >= MAX_CUSTOM_EVENTS_PER_USER,
+    createCustomEvent: async (data) => {
+      if (authed) return (await createCustomEventMutation.mutateAsync(data)).event;
+      const event = guestStore.createCustomEvent(data);
+      refreshGuest();
+      return event;
+    },
+    updateCustomEvent,
+    deleteCustomEvent: async (id) => {
+      if (authed) {
+        await deleteCustomEventMutation.mutateAsync(id);
+      } else {
+        guestStore.deleteCustomEvent(id);
+        refreshGuest();
+      }
+    },
+    skipOccurrence: async (eventId, date) => {
+      const event = customEvents.find((e) => e.id === eventId);
+      if (!event || event.schedule.kind !== 'weekly') return;
+      const { exceptions } = event.schedule;
+      if (exceptions.includes(date)) return;
+      if (exceptions.length >= MAX_EVENT_EXCEPTIONS) throw new Error('too_many_exceptions');
+      // The schema re-sorts the exceptions and rejects a date outside the series
+      const data = customEventInputSchema.parse({
+        ...toEventData(event),
+        schedule: { ...event.schedule, exceptions: [...exceptions, date] },
+      });
+      await updateCustomEvent(eventId, data);
+    },
+
+    eventLabels,
+    labelsAtLimit: eventLabels.length >= MAX_EVENT_LABELS_PER_USER,
+    createEventLabel: async (data) => {
+      if (authed) return (await createEventLabelMutation.mutateAsync(data)).label;
+      const label = guestStore.createEventLabel(data);
+      refreshGuest();
+      return label;
+    },
+    updateEventLabel: async (id, data) => {
+      if (authed) {
+        await updateEventLabelMutation.mutateAsync({ id, data });
+      } else {
+        guestStore.updateEventLabel(id, data);
+        refreshGuest();
+      }
+    },
+    deleteEventLabel: async (id) => {
+      if (authed) {
+        await deleteEventLabelMutation.mutateAsync(id);
+      } else {
+        guestStore.deleteEventLabel(id);
+        refreshGuest();
+      }
+    },
+
     pendingImport,
     confirmImport: async () => {
-      const local = guestStore.get().views;
-      for (const v of local) {
-        // Sequential on purpose: preserves the guest views' relative order.
-        await createViewMutation.mutateAsync({ name: v.name, settings: v.settings });
-      }
+      const local = guestStore.get();
+      // One atomic request: the server remaps label refs (guest ids) and
+      // writes nothing on failure, so the guest data stays for a retry.
+      await api.guestImport({
+        labels: local.eventLabels.map((l) => ({ ref: l.id, name: l.name, color: l.color })),
+        events: local.customEvents.map(toEventData),
+        views: local.views.map((v) => ({ name: v.name, settings: v.settings })),
+      });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['custom-events'] }),
+        qc.invalidateQueries({ queryKey: ['views'] }),
+      ]);
       clearGuestData();
       markImportHandled();
       setPendingImport(null);

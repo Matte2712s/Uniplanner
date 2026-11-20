@@ -1,11 +1,18 @@
 import type {
   AdminOverviewDto,
   CourseDto,
+  CustomEventData,
+  CustomEventDto,
+  CustomEventsResponse,
+  EventLabelDto,
+  EventLabelInput,
   EventsResponse,
   FolderDto,
+  GuestImportInput,
   Lang,
   MeDto,
   ProgramDto,
+  SharedCustomEventsDto,
   SharedViewDto,
   SourceDto,
   View,
@@ -75,7 +82,8 @@ export const api = {
   addProgram: (program: string) =>
     call<{ ok: true; added: number }>(`/api/programs/${encodeURIComponent(program)}/add`, { method: 'POST' }),
 
-  previewEvents: (from: string, to: string, settings: ViewSettings) =>
+  // The timetable ignores custom events, so callers leave that setting out
+  previewEvents: (from: string, to: string, settings: Omit<ViewSettings, 'customEvents'>) =>
     call<EventsResponse>('/api/events/preview', { method: 'POST', body: JSON.stringify({ from, to, settings }) }),
 
   views: () => call<{ views: View[] }>('/api/views'),
@@ -90,6 +98,24 @@ export const api = {
   unshareView: (id: number) => call<{ view: View }>(`/api/views/${id}/share`, { method: 'DELETE' }),
 
   sharedView: (token: string) => call<SharedViewDto>(`/api/shared/${encodeURIComponent(token)}`),
+  sharedCustomEvents: (token: string) =>
+    call<SharedCustomEventsDto>(`/api/shared/${encodeURIComponent(token)}/custom-events`),
+
+  customEvents: () => call<CustomEventsResponse>('/api/custom-events'),
+  createCustomEvent: (data: CustomEventData) =>
+    call<{ event: CustomEventDto }>('/api/custom-events', { method: 'POST', body: JSON.stringify(data) }),
+  updateCustomEvent: (id: number, data: CustomEventData) =>
+    call<{ event: CustomEventDto }>(`/api/custom-events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCustomEvent: (id: number) => call<{ ok: true }>(`/api/custom-events/${id}`, { method: 'DELETE' }),
+
+  createEventLabel: (data: EventLabelInput) =>
+    call<{ label: EventLabelDto }>('/api/event-labels', { method: 'POST', body: JSON.stringify(data) }),
+  updateEventLabel: (id: number, data: EventLabelInput) =>
+    call<{ label: EventLabelDto }>(`/api/event-labels/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteEventLabel: (id: number) => call<{ ok: true }>(`/api/event-labels/${id}`, { method: 'DELETE' }),
+
+  guestImport: (data: GuestImportInput) =>
+    call<{ ok: true }>('/api/guest-import', { method: 'POST', body: JSON.stringify(data) }),
 
   prefs: () => call<{ activeViewId: number | null; lang: Lang }>('/api/prefs'),
   setPrefs: (patch: { activeViewId?: number | null; lang?: Lang }) =>

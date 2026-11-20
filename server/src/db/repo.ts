@@ -1,6 +1,15 @@
-import type { CourseDto, ViewSettings } from '@planner/shared';
+import type { CourseDto, CustomEventData, CustomEventDto, GuestImportData, ViewSettings } from '@planner/shared';
 import type { PlacedSource, SiblingRef } from '@planner/shared';
-import { collectSubtreeIds, defaultViewSettings, siblingOrderAfterMove } from '@planner/shared';
+import {
+  collectSubtreeIds,
+  customEventDataSchema,
+  defaultViewSettings,
+  MAX_CUSTOM_EVENTS_PER_USER,
+  MAX_EVENT_LABELS_PER_USER,
+  MAX_VIEWS_PER_USER,
+  siblingOrderAfterMove,
+  viewSettingsSchema,
+} from '@planner/shared';
 import { tx, type Db } from './index.ts';
 
 export interface UserRow {
@@ -449,13 +458,19 @@ export function renameUserSource(db: Db, userId: number, sourceId: number, name:
   ).run(userId, sourceId, name);
 }
 
-function parseView(row: ViewRow) {
-  let settings: ViewSettings;
+/** Stored settings with schema defaults filled in; rows saved before a settings field existed stay readable. Unreadable JSON falls back to defaults. */
+function parseSettings(raw: string): ViewSettings {
   try {
-    settings = JSON.parse(row.settings);
+    const parsed = viewSettingsSchema.safeParse(JSON.parse(raw));
+    if (parsed.success) return parsed.data;
   } catch {
-    settings = defaultViewSettings();
+    // Bad JSON
   }
+  return defaultViewSettings();
+}
+
+function parseView(row: ViewRow) {
+  const settings = parseSettings(row.settings);
   return {
     id: row.id,
     name: row.name,
@@ -518,10 +533,214 @@ export function getViewByShareToken(db: Db, token: string) {
   return row ? parseView(row) : undefined;
 }
 
+/** Owner and settings behind a share token. The owner id is for server-side lookups only and must never reach a response. */
+export function getSharedViewContext(db: Db, token: string): { userId: number; settings: ViewSettings } | undefined {
+  const row = db.prepare('SELECT user_id, settings FROM views WHERE share_token = ?').get(token) as
+    | { user_id: number; settings: string }
+    | undefined;
+  return row ? { userId: row.user_id, settings: parseSettings(row.settings) } : undefined;
+}
+
 export function reorderViews(db: Db, userId: number, orderedIds: number[]): void {
   const stmt = db.prepare('UPDATE views SET position = ? WHERE id = ? AND user_id = ?');
   tx(db, () => {
     orderedIds.forEach((id, index) => stmt.run(index, id, userId));
+  });
+}
+
+export interface EventLabelRow {
+  id: number;
+  user_id: number;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
+export interface CustomEventRow {
+  id: number;
+  user_id: number;
+  label_id: number | null;
+  data: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EventLabelData = Pick<EventLabelRow, 'name' | 'color'>;
+
+export function listEventLabels(db: Db, userId: number): EventLabelRow[] {
+  return db
+    .prepare('SELECT * FROM custom_event_labels WHERE user_id = ? ORDER BY id ASC')
+    .all(userId) as unknown as EventLabelRow[];
+}
+
+export function getEventLabel(db: Db, userId: number, id: number): EventLabelRow | undefined {
+  return db.prepare('SELECT * FROM custom_event_labels WHERE id = ? AND user_id = ?').get(id, userId) as
+    | EventLabelRow
+    | undefined;
+}
+
+export function createEventLabel(db: Db, userId: number, input: EventLabelData): EventLabelRow | 'limit' {
+  return tx(db, () => {
+    const count = db.prepare('SELECT COUNT(*) AS n FROM custom_event_labels WHERE user_id = ?').get(userId) as { n: number };
+    if (count.n >= MAX_EVENT_LABELS_PER_USER) return 'limit' as const;
+    const res = db
+      .prepare('INSERT INTO custom_event_labels (user_id, name, color) VALUES (?, ?, ?)')
+      .run(userId, input.name, input.color);
+    return getEventLabel(db, userId, Number(res.lastInsertRowid))!;
+  });
+}
+
+export function updateEventLabel(db: Db, userId: number, id: number, input: EventLabelData): EventLabelRow | undefined {
+  if (!getEventLabel(db, userId, id)) return undefined;
+  db.prepare('UPDATE custom_event_labels SET name = ?, color = ? WHERE id = ? AND user_id = ?').run(
+    input.name,
+    input.color,
+    id,
+    userId,
+  );
+  return getEventLabel(db, userId, id);
+}
+
+/** Deletes a label; its events keep existing without one (FK), and views stop listing it as hidden. */
+export function deleteEventLabel(db: Db, userId: number, id: number): boolean {
+  return tx(db, () => {
+    const res = db.prepare('DELETE FROM custom_event_labels WHERE id = ? AND user_id = ?').run(id, userId);
+    if (Number(res.changes) === 0) return false;
+    // Stale ids would otherwise linger in hiddenLabels and count against its cap
+    for (const view of listViews(db, userId)) {
+      const { customEvents } = view.settings;
+      if (!customEvents.hiddenLabels.includes(id)) continue;
+      updateView(db, userId, view.id, {
+        settings: {
+          ...view.settings,
+          customEvents: { ...customEvents, hiddenLabels: customEvents.hiddenLabels.filter((x) => x !== id) },
+        },
+      });
+    }
+    return true;
+  });
+}
+
+function customEventDto(row: CustomEventRow, data: Omit<CustomEventData, 'labelId'>): CustomEventDto {
+  return { ...data, labelId: row.label_id, id: row.id, updatedAt: row.updated_at };
+}
+
+/** Stored data is re-validated on every read, so a row that no longer passes the schema is skipped instead of reaching clients. */
+function readCustomEvent(row: CustomEventRow): CustomEventDto | undefined {
+  try {
+    const parsed = customEventDataSchema.safeParse(JSON.parse(row.data));
+    if (parsed.success) return customEventDto(row, parsed.data);
+  } catch {
+    // Bad JSON
+  }
+  // Id only; event content stays out of logs
+  console.warn(`custom event ${row.id} skipped: stored data is invalid`);
+  return undefined;
+}
+
+function selectCustomEventRow(db: Db, userId: number, id: number): CustomEventRow | undefined {
+  return db.prepare('SELECT * FROM custom_events WHERE id = ? AND user_id = ?').get(id, userId) as
+    | CustomEventRow
+    | undefined;
+}
+
+export function listCustomEvents(db: Db, userId: number): CustomEventDto[] {
+  const rows = db
+    .prepare('SELECT * FROM custom_events WHERE user_id = ? ORDER BY id ASC')
+    .all(userId) as unknown as CustomEventRow[];
+  return rows.flatMap((row) => readCustomEvent(row) ?? []);
+}
+
+export function getCustomEvent(db: Db, userId: number, id: number): CustomEventDto | undefined {
+  const row = selectCustomEventRow(db, userId, id);
+  return row ? readCustomEvent(row) : undefined;
+}
+
+/** Ownership check that ignores stored content, so a row with invalid data can still be replaced or deleted. */
+export function hasCustomEvent(db: Db, userId: number, id: number): boolean {
+  return selectCustomEventRow(db, userId, id) !== undefined;
+}
+
+export function createCustomEvent(db: Db, userId: number, input: CustomEventData): CustomEventDto | 'limit' | 'invalid_label' {
+  const { labelId, ...data } = input;
+  return tx(db, () => {
+    const count = db.prepare('SELECT COUNT(*) AS n FROM custom_events WHERE user_id = ?').get(userId) as { n: number };
+    if (count.n >= MAX_CUSTOM_EVENTS_PER_USER) return 'limit' as const;
+    if (labelId !== null && !getEventLabel(db, userId, labelId)) return 'invalid_label' as const;
+    const res = db
+      .prepare('INSERT INTO custom_events (user_id, label_id, data) VALUES (?, ?, ?)')
+      .run(userId, labelId, JSON.stringify(data));
+    return customEventDto(selectCustomEventRow(db, userId, Number(res.lastInsertRowid))!, data);
+  });
+}
+
+/** Full replace of an event the user owns. */
+export function updateCustomEvent(
+  db: Db,
+  userId: number,
+  id: number,
+  input: CustomEventData,
+): CustomEventDto | 'not_found' | 'invalid_label' {
+  const { labelId, ...data } = input;
+  return tx(db, () => {
+    if (!selectCustomEventRow(db, userId, id)) return 'not_found' as const;
+    if (labelId !== null && !getEventLabel(db, userId, labelId)) return 'invalid_label' as const;
+    db.prepare(
+      `UPDATE custom_events SET label_id = ?, data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ? AND user_id = ?`,
+    ).run(labelId, JSON.stringify(data), id, userId);
+    return customEventDto(selectCustomEventRow(db, userId, id)!, data);
+  });
+}
+
+export function deleteCustomEvent(db: Db, userId: number, id: number): boolean {
+  const res = db.prepare('DELETE FROM custom_events WHERE id = ? AND user_id = ?').run(id, userId);
+  return Number(res.changes) > 0;
+}
+
+export type GuestImportResult = 'ok' | 'too_many_event_labels' | 'too_many_custom_events' | 'too_many_views';
+
+function countRows(db: Db, table: 'custom_event_labels' | 'custom_events' | 'views', userId: number): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`).get(userId) as { n: number };
+  return row.n;
+}
+
+/**
+ * Imports a guest's labels, events and views in one transaction: all of it or
+ * nothing. Incoming events and views reference labels by the guest's own refs,
+ * which are remapped to the new ids; an unknown ref becomes "no label".
+ */
+export function importGuestData(db: Db, userId: number, data: GuestImportData): GuestImportResult {
+  return tx(db, () => {
+    if (countRows(db, 'custom_event_labels', userId) + data.labels.length > MAX_EVENT_LABELS_PER_USER) {
+      return 'too_many_event_labels' as const;
+    }
+    if (countRows(db, 'custom_events', userId) + data.events.length > MAX_CUSTOM_EVENTS_PER_USER) {
+      return 'too_many_custom_events' as const;
+    }
+    if (countRows(db, 'views', userId) + data.views.length > MAX_VIEWS_PER_USER) {
+      return 'too_many_views' as const;
+    }
+
+    const insertLabel = db.prepare('INSERT INTO custom_event_labels (user_id, name, color) VALUES (?, ?, ?)');
+    const idByRef = new Map<number, number>();
+    for (const label of data.labels) {
+      const res = insertLabel.run(userId, label.name, label.color);
+      idByRef.set(label.ref, Number(res.lastInsertRowid));
+    }
+
+    const insertEvent = db.prepare('INSERT INTO custom_events (user_id, label_id, data) VALUES (?, ?, ?)');
+    for (const { labelId, ...event } of data.events) {
+      insertEvent.run(userId, labelId === null ? null : (idByRef.get(labelId) ?? null), JSON.stringify(event));
+    }
+
+    // createView does not open its own transaction
+    for (const view of data.views) {
+      const { customEvents } = view.settings;
+      const hiddenLabels = [...new Set(customEvents.hiddenLabels.flatMap((ref) => idByRef.get(ref) ?? []))];
+      createView(db, userId, view.name, { ...view.settings, customEvents: { ...customEvents, hiddenLabels } });
+    }
+    return 'ok' as const;
   });
 }
 

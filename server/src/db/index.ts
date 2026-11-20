@@ -123,6 +123,27 @@ const migrations: string[] = [
   `,
   // Sources order among their folder's subfolders (same position space as user_folders.position)
   `ALTER TABLE user_source_placements ADD COLUMN position INTEGER NOT NULL DEFAULT 0;`,
+  // User-created calendar events and their labels; event content is validated JSON, the label link stays a real FK
+  `
+  CREATE TABLE custom_event_labels (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX custom_event_labels_user ON custom_event_labels(user_id);
+  CREATE TABLE custom_events (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label_id INTEGER REFERENCES custom_event_labels(id) ON DELETE SET NULL,
+    data TEXT NOT NULL CHECK (length(data) <= 16384),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX custom_events_user ON custom_events(user_id);
+  CREATE INDEX custom_events_label ON custom_events(label_id);
+  `,
 ];
 
 export type Db = DatabaseSync;
