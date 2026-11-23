@@ -193,6 +193,14 @@ export function IconMapPin(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function IconX(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </Svg>
+  );
+}
+
 export function IconEyeOff(props: SVGProps<SVGSVGElement>) {
   return (
     <Svg {...props}>

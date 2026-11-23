@@ -40,11 +40,16 @@ export interface SlotSelection {
 }
 
 // Tells the two event sources apart inside FullCalendar's callbacks
+// covered: hidden lessons whose background ghost this event sits on top of
 type EventKindProps =
-  | { kind: 'cineca'; dto: CalendarEventDto }
+  | { kind: 'cineca'; dto: CalendarEventDto; covered?: CalendarEventDto[] }
   // A lesson hidden by the owner, drawn as a placeholder that can be shown again
   | { kind: 'hidden'; dto: CalendarEventDto }
-  | { kind: 'custom'; event: CalendarCustomEvent; occurrence: CustomEventOccurrence };
+  | { kind: 'custom'; event: CalendarCustomEvent; occurrence: CustomEventOccurrence; covered?: CalendarEventDto[] };
+
+const SHORT_EVENT_MS = 45 * 60_000;
+// Same default length as the sidebar's new-event button
+const DOUBLE_CLICK_EVENT_MS = 60 * 60_000;
 
 const DEFAULT_SLOT_MIN_MINUTES = 7 * 60;
 const DEFAULT_SLOT_MAX_MINUTES = 21 * 60;
@@ -149,8 +154,27 @@ export const CalendarView = forwardRef<
     calRef.current?.getApi().changeView('timeGridDay', date);
   }
 
+  // A ghost under another event is out of reach; this badge on top opens it instead
+  function coveredBadge(covered: CalendarEventDto[] | undefined) {
+    if (!covered?.length) return null;
+    const label = t('event.hiddenHere', { count: covered.length });
+    return (
+      <span className="hidden-overlap-badge" role="img" aria-label={label} title={label}>
+        <IconEyeOff width={11} height={11} />
+        {covered.length > 1 && covered.length}
+      </span>
+    );
+  }
+
+  // A time-grid block under 45 minutes fits one line, so the title goes first
+  function isShortTimed(arg: EventContentArg): boolean {
+    const { start, end, allDay } = arg.event;
+    if (allDay || !start || !end || !arg.view.type.startsWith('timeGrid')) return false;
+    return end.getTime() - start.getTime() < SHORT_EVENT_MS;
+  }
+
   // Same month layout as Cineca events; the dot takes the event's own color
-  function customEventContent(arg: EventContentArg, event: CalendarCustomEvent) {
+  function customEventContent(arg: EventContentArg, event: CalendarCustomEvent, covered?: CalendarEventDto[]) {
     if (arg.view.type === 'dayGridMonth') {
       if (isMobile) return <span className="event-dot" style={{ background: arg.event.borderColor }} />;
       return (
@@ -161,9 +185,23 @@ export const CalendarView = forwardRef<
         </span>
       );
     }
+    if (isShortTimed(arg)) {
+      return (
+        <div className="event-card event-card-short">
+          {coveredBadge(covered)}
+          <span className="title">{arg.event.title}</span>
+          {arg.timeText && <span className="meta">{arg.timeText}</span>}
+        </div>
+      );
+    }
     return (
       <div className="event-card">
-        {arg.timeText && <div className="meta">{arg.timeText}</div>}
+        {(arg.timeText || !!covered?.length) && (
+          <div className="meta">
+            {coveredBadge(covered)}
+            {arg.timeText}
+          </div>
+        )}
         <div className="title">{arg.event.title}</div>
         {event.location && <div className="meta">{event.location}</div>}
       </div>
@@ -203,8 +241,12 @@ export const CalendarView = forwardRef<
   }
 
   function eventContent(arg: EventContentArg) {
+    // Selection placeholder (selectMirror) has none of our props; treating it as a lesson crashed FC mid-render
+    if (arg.isMirror) {
+      return <div className="event-card">{arg.timeText && <div className="meta">{arg.timeText}</div>}</div>;
+    }
     const props = arg.event.extendedProps as EventKindProps;
-    if (props.kind === 'custom') return customEventContent(arg, props.event);
+    if (props.kind === 'custom') return customEventContent(arg, props.event, props.covered);
     if (props.kind === 'hidden') return hiddenEventContent(arg);
     const ev = props.dto;
     const cancelled = ev.status === 'cancelled' ? ' cancelled' : '';
@@ -228,10 +270,22 @@ export const CalendarView = forwardRef<
       );
     }
 
+    if (isShortTimed(arg)) {
+      return (
+        <div className={`event-card event-card-short${cancelled}`}>
+          {coveredBadge(props.covered)}
+          <EventMarkerIcons event={ev} />
+          <span className="title">{arg.event.title}</span>
+          {arg.timeText && <span className="meta">{arg.timeText}</span>}
+        </div>
+      );
+    }
+
     return (
       <div className={`event-card${cancelled}`}>
-        {(arg.timeText || eventMarkers(ev).length > 0) && (
+        {(arg.timeText || eventMarkers(ev).length > 0 || !!props.covered?.length) && (
           <div className="meta">
+            {coveredBadge(props.covered)}
             <EventMarkerIcons event={ev} />
             {arg.timeText}
           </div>
@@ -332,7 +386,24 @@ export const CalendarView = forwardRef<
     });
   }, [occurrences, visibleDefinitions, customLabels]);
 
-  const events: EventInput[] = useMemo(() => [...cinecaEvents, ...customInputs], [cinecaEvents, customInputs]);
+  const events: EventInput[] = useMemo(() => {
+    const all = [...cinecaEvents, ...customInputs];
+    if (!ghostsAsBackground) return all;
+    const ghosts = cinecaEvents.flatMap((input) => {
+      const props = input.extendedProps as EventKindProps;
+      return props.kind === 'hidden' ? [props.dto] : [];
+    });
+    if (ghosts.length === 0) return all;
+    // Tag each event drawn over a ghost, so its badge can reach the hidden lesson
+    return all.map((input) => {
+      const props = input.extendedProps as EventKindProps;
+      if (props.kind === 'hidden' || input.allDay || typeof input.start !== 'string' || typeof input.end !== 'string') return input;
+      const start = Date.parse(input.start);
+      const end = Date.parse(input.end);
+      const covered = ghosts.filter((g) => Date.parse(g.start) < end && Date.parse(g.end) > start);
+      return covered.length > 0 ? { ...input, extendedProps: { ...props, covered } } : input;
+    });
+  }, [cinecaEvents, customInputs, ghostsAsBackground]);
 
   // Time grids default to 07-21; widen them when a loaded event falls outside, or it would be invisible
   const slotBounds = useMemo(() => {
@@ -417,7 +488,10 @@ export const CalendarView = forwardRef<
           eventClassNames={eventClassNames}
           eventClick={(arg) => {
             const props = arg.event.extendedProps as EventKindProps;
-            if (props.kind === 'custom') onCustomEventClick(props.event, props.occurrence);
+            const onBadge = (arg.jsEvent.target as Element | null)?.closest?.('.hidden-overlap-badge');
+            const coveredLesson = props.kind === 'hidden' ? undefined : props.covered?.[0];
+            if (onBadge && coveredLesson) onHiddenEventClick?.(coveredLesson);
+            else if (props.kind === 'custom') onCustomEventClick(props.event, props.occurrence);
             else if (props.kind === 'hidden') onHiddenEventClick?.(props.dto);
             else onEventClick(props.dto);
           }}
@@ -435,9 +509,21 @@ export const CalendarView = forwardRef<
           selectable={Boolean(onSlotSelect)}
           selectMirror
           selectLongPressDelay={300}
+          // Mouse only: a plain click must not start a selection, so only a drag opens the editor
+          selectMinDistance={5}
           select={(arg) => {
             onSlotSelect?.({ start: arg.start, end: arg.end, allDay: arg.allDay });
             calRef.current?.getApi().unselect();
+          }}
+          dateClick={(arg) => {
+            // A single click does nothing; a double-click opens the editor for an hour (or the day) there.
+            // Touch taps carry no click count, so phones keep the long press.
+            if (!onSlotSelect || arg.jsEvent.detail < 2) return;
+            const start = arg.date;
+            const end = arg.allDay
+              ? new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1)
+              : new Date(start.getTime() + DOUBLE_CLICK_EVENT_MS);
+            onSlotSelect({ start, end, allDay: arg.allDay });
           }}
           datesSet={(arg) => {
             onTitleChange(arg.view.title);

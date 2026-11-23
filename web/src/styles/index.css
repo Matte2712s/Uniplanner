@@ -689,6 +689,26 @@ a {
 
 .dialog.dialog-wide {
   max-width: 520px;
+  padding: 20px 24px;
+}
+
+/* Sticky so it stays in reach while a long form scrolls. Sticky offsets start
+   inside the dialog padding, so top matches the negative margin. The negative
+   bottom margin keeps the float from narrowing the fields below it; only the
+   heading makes room for it. */
+.dialog-close {
+  position: sticky;
+  top: -12px;
+  float: right;
+  z-index: 1;
+  margin: -12px -16px -44px 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.dialog-close + h2,
+.dialog-close + form > h2:first-child {
+  padding-right: 36px;
 }
 
 /* One weekly time slot: weekday, start, end, remove */
@@ -987,6 +1007,13 @@ a {
     width: 100%;
     border-radius: var(--radius) var(--radius) 0 0;
     max-height: 90vh;
+  }
+  .dialog.dialog-wide {
+    padding: 16px 20px;
+  }
+  .dialog-close {
+    top: -8px;
+    margin: -8px -12px -44px 8px;
   }
 }
 
@@ -1393,6 +1420,34 @@ a {
   white-space: nowrap;
 }
 
+/* Short events: one line, title first; the time gives way before the title does */
+.event-card-short {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.event-card-short .title {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-card-short .meta {
+  flex: 0 100 auto;
+  min-width: 0;
+}
+
+.event-card-short .event-markers,
+.event-card-short .hidden-overlap-badge {
+  flex: none;
+  align-self: center;
+}
+
 .event-card.cancelled {
   text-decoration: line-through;
   opacity: 0.6;
@@ -1538,6 +1593,24 @@ a {
   background: var(--surface-2);
   font-size: 11px;
   font-style: normal;
+}
+
+/* On an event drawn over a hidden lesson's ghost; clicking it opens the hidden lesson */
+.hidden-overlap-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+  font-weight: 600;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.hidden-overlap-badge:hover {
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .event-markers {

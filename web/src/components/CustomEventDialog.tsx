@@ -78,7 +78,7 @@ export function CustomEventDialog({
   const labelId = ctl.idFor('labelId');
 
   return (
-    <Dialog onClose={onClose} className="dialog-wide">
+    <Dialog onClose={onClose} className="dialog-wide" closeButton>
       <form ref={formRef} noValidate onSubmit={(e) => void submit(e)}>
         <h2>{initial ? t('customEvents.dialog.editTitle') : t('customEvents.dialog.newTitle')}</h2>
 
