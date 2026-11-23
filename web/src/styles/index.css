@@ -712,24 +712,37 @@ a {
 }
 
 /* One weekly time slot: weekday, start, end, remove */
+/* Rows switch layout on the list's own width, not the viewport's */
+.slot-list {
+  container-type: inline-size;
+}
+
+/* Times keep their natural width, so 12-hour formats with AM/PM fit; the weekday takes the rest */
 .slot-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
 
-.slot-row select {
-  flex: 1 1 140px;
-}
-
 .slot-row input[type='time'] {
-  flex: 1 1 100px;
+  width: auto;
 }
 
-.slot-row .icon-btn {
-  flex: none;
+/* Too narrow for one line: weekday on top, times and remove below */
+@container (max-width: 440px) {
+  .slot-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .slot-row select {
+    grid-column: 1 / -1;
+  }
+
+  .slot-row input[type='time'] {
+    width: 100%;
+  }
 }
 
 /* Color choice: radiogroup of swatches plus a native picker for other colors */

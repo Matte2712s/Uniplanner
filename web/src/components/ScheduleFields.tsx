@@ -20,7 +20,7 @@ function SlotRows({ state, update, ctl }: { state: EventFormState; update: Updat
   }
 
   return (
-    <div className="field">
+    <div className="field slot-list">
       <span className="field-label">{t('customEvents.field.slots')}</span>
       {state.slots.map((slot, index) => {
         const weekdayKey = `slot.${index}.weekday`;
