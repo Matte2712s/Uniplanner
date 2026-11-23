@@ -155,6 +155,45 @@ describe('POST /api/guest-import', () => {
     expect(listCustomEvents(db, other.id).map((e) => e.title)).toEqual(['Other event']);
   });
 
+  it('keeps the hidden-lesson rules of a guest view', async () => {
+    const db = openDb(':memory:');
+    app = await buildApp(db);
+    const user = upsertUser(db, 'a', 'a@example.com', 'A');
+    const cookieHeader = sessionCookieFor(db, user.id);
+    const once = { kind: 'once', eventId: '3:100:2026-10-01T12:00:00.000Z', courseKey: 'MAT01|Analisi 1', start: '2026-10-01T12:00:00.000Z' };
+    const weekly = { kind: 'weekly', courseKey: 'MAT01|Analisi 1', partition: null, weekday: 4, time: '14:00' };
+    const hiddenView = (name: string, hidden: unknown[]) => ({
+      name,
+      settings: { sources: [{ sourceId: 3, courseMode: 'exclude', courses: [], hidden }] },
+    });
+
+    const res = await app.inject(
+      importReq(cookieHeader, {
+        labels: [],
+        events: [],
+        // A view saved before the feature has no hidden field at all
+        views: [
+          hiddenView('With rules', [once, weekly]),
+          { name: 'Old', settings: { sources: [{ sourceId: 3, courseMode: 'exclude', courses: [] }] } },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+
+    const views = listViews(db, user.id);
+    expect(views.map((v) => v.name)).toEqual(['With rules', 'Old']);
+    expect(views[0]!.settings.sources[0]!.hidden).toEqual([once, weekly]);
+    expect(views[1]!.settings.sources[0]!.hidden).toEqual([]);
+
+    // A bad rule fails the whole import
+    const bad = await app.inject(
+      importReq(cookieHeader, { labels: [], events: [], views: [hiddenView('Bad', [{ ...weekly, weekday: 8 }])] }),
+    );
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe('invalid_body');
+    expect(listViews(db, user.id)).toHaveLength(2);
+  });
+
   it('accepts a request larger than the single-event body limit', async () => {
     const db = openDb(':memory:');
     app = await buildApp(db);

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CalendarEventDto, CalendarMode, CustomEventDto, CustomEventOccurrence } from '@planner/shared';
+import type { CalendarEventDto, CalendarMode, CustomEventDto, CustomEventOccurrence, ViewSettings } from '@planner/shared';
+import { hideEvent, matchingHiddenRules, unhideEvent } from '@planner/shared';
 import {
   CalendarView,
   type CalendarCustomEvent,
@@ -9,6 +10,7 @@ import {
 } from './components/CalendarView.tsx';
 import { CustomEventDetail } from './components/CustomEventDetail.tsx';
 import { CustomEventDialog } from './components/CustomEventDialog.tsx';
+import { ErrorDialog } from './components/ErrorDialog.tsx';
 import { EventDetail } from './components/EventDetail.tsx';
 import { ImportGuestViewsDialog } from './components/ImportGuestViewsDialog.tsx';
 import { ManageEventsDialog } from './components/ManageEventsDialog.tsx';
@@ -70,6 +72,7 @@ export function App() {
   const [selectedCustom, setSelectedCustom] = useState<{ event: CalendarCustomEvent; occurrence: CustomEventOccurrence } | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [hideError, setHideError] = useState<string | null>(null);
 
   const settings = planner.activeView?.settings;
   if (!settings) {
@@ -96,6 +99,39 @@ export function App() {
   // The detail holds a calendar snapshot; editing needs the stored event
   function storedEvent(event: CalendarCustomEvent): CustomEventDto | undefined {
     return planner.customEvents.find((e) => e.id === event.id);
+  }
+
+  // Rules hiding the selected lesson in this view; none while it is visible
+  const selectedRules = selectedEvent
+    ? matchingHiddenRules(settings.sources.find((s) => s.sourceId === selectedEvent.sourceId)?.hidden ?? [], selectedEvent)
+    : [];
+
+  async function saveHiding(next: ViewSettings) {
+    // Closed first, so a second click cannot submit the same change twice
+    setSelectedEvent(null);
+    try {
+      await planner.updateActiveViewSettings(next);
+    } catch {
+      setHideError(t('error.generic'));
+    }
+  }
+
+  function hideSelected(kind: 'once' | 'weekly') {
+    if (!settings || !selectedEvent) return;
+    const next = hideEvent(settings, selectedEvent, kind);
+    if (next === 'limit') {
+      setSelectedEvent(null);
+      setHideError(t('event.hideLimit'));
+    } else if (next === settings) {
+      setSelectedEvent(null);
+    } else {
+      void saveHiding(next);
+    }
+  }
+
+  function unhideSelected() {
+    if (!settings || !selectedEvent) return;
+    void saveHiding(unhideEvent(settings, selectedEvent));
   }
 
   function onModeChange(mode: CalendarMode) {
@@ -168,12 +204,21 @@ export function App() {
               customEvents={{ events: planner.customEvents, labels: planner.eventLabels }}
               onCustomEventClick={(event, occurrence) => setSelectedCustom({ event, occurrence })}
               onSlotSelect={(selection) => openEditor({ initial: null, draft: draftFromSelection(selection) })}
+              onHiddenEventClick={setSelectedEvent}
             />
           </div>
         </div>
       </div>
 
-      {selectedEvent && <EventDetail event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
+      {selectedEvent && (
+        <EventDetail
+          event={selectedEvent}
+          hiding={{ rules: selectedRules, onHide: hideSelected, onUnhide: unhideSelected }}
+          onClose={() => setSelectedEvent(null)}
+        />
+      )}
+
+      {hideError && <ErrorDialog message={hideError} onClose={() => setHideError(null)} />}
 
       {selectedCustom && (
         <CustomEventDetail

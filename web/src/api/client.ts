@@ -17,7 +17,11 @@ import type {
   SourceDto,
   View,
   ViewSettings,
+  ViewSource,
 } from '@planner/shared';
+
+// What the timetable request needs: no custom events and no hidden-lesson rules
+type CinecaSettings = Omit<ViewSettings, 'customEvents' | 'sources'> & { sources: Omit<ViewSource, 'hidden'>[] };
 
 export class ApiError extends Error {
   constructor(
@@ -82,8 +86,8 @@ export const api = {
   addProgram: (program: string) =>
     call<{ ok: true; added: number }>(`/api/programs/${encodeURIComponent(program)}/add`, { method: 'POST' }),
 
-  // The timetable ignores custom events, so callers leave that setting out
-  previewEvents: (from: string, to: string, settings: Omit<ViewSettings, 'customEvents'>) =>
+  // Hiding is client side (ghosts need the hidden lessons), so callers leave the rules out
+  previewEvents: (from: string, to: string, settings: CinecaSettings) =>
     call<EventsResponse>('/api/events/preview', { method: 'POST', body: JSON.stringify({ from, to, settings }) }),
 
   views: () => call<{ views: View[] }>('/api/views'),

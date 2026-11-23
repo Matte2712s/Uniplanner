@@ -15,12 +15,13 @@ import type {
   EventLabelDto,
   ViewSettings,
 } from '@planner/shared';
-import { expandOccurrences } from '@planner/shared';
+import { expandOccurrences, isEventHidden } from '@planner/shared';
 import { api } from '../api/client.ts';
 import { colorForCourse, readableTextColor, resolveCustomEventColor } from '../lib/color.ts';
 import { CINECA_QUERY_RETRY, cinecaRetryDelay } from '../lib/retry.ts';
 import { useIsMobile } from '../hooks/useMediaQuery.ts';
 import { EventMarkerIcons, eventMarkers } from './EventMarkers.tsx';
+import { IconEyeOff } from './icons.tsx';
 
 export interface CalendarViewHandle {
   prev(): void;
@@ -41,6 +42,8 @@ export interface SlotSelection {
 // Tells the two event sources apart inside FullCalendar's callbacks
 type EventKindProps =
   | { kind: 'cineca'; dto: CalendarEventDto }
+  // A lesson hidden by the owner, drawn as a placeholder that can be shown again
+  | { kind: 'hidden'; dto: CalendarEventDto }
   | { kind: 'custom'; event: CalendarCustomEvent; occurrence: CustomEventOccurrence };
 
 const DEFAULT_SLOT_MIN_MINUTES = 7 * 60;
@@ -49,6 +52,11 @@ const DEFAULT_SLOT_MAX_MINUTES = 21 * 60;
 // FullCalendar duration string; 24:00:00 is a valid slotMaxTime
 function slotTime(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
+}
+
+// FullCalendar's PointerDragging starts on these; ghosts must not begin a date selection
+function stopPointerStart(ev: Event) {
+  ev.stopPropagation();
 }
 
 const MODE_TO_FC: Record<CalendarMode, string> = {
@@ -70,9 +78,11 @@ export const CalendarView = forwardRef<
     onCustomEventClick: (event: CalendarCustomEvent, occurrence: CustomEventOccurrence) => void;
     // Without it the calendar is read-only (shared links)
     onSlotSelect?: (selection: SlotSelection) => void;
+    // Without it hidden lessons are dropped instead of drawn as ghosts (shared links)
+    onHiddenEventClick?: (event: CalendarEventDto) => void;
   }
 >(function CalendarView(
-  { settings, mode, onModeChange, onTitleChange, onEventClick, customEvents, onCustomEventClick, onSlotSelect },
+  { settings, mode, onModeChange, onTitleChange, onEventClick, customEvents, onCustomEventClick, onSlotSelect, onHiddenEventClick },
   ref,
 ) {
   const { t, i18n } = useTranslation();
@@ -160,9 +170,42 @@ export const CalendarView = forwardRef<
     );
   }
 
+  function hiddenEventContent(arg: EventContentArg) {
+    const tag = t('event.hiddenTag');
+    if (arg.view.type === 'dayGridMonth') {
+      if (isMobile) {
+        return <span className="event-dot event-dot-hollow" style={{ borderColor: arg.event.borderColor }} title={`${arg.event.title} - ${tag}`} />;
+      }
+      return (
+        <span className="event-line hidden-line" title={`${arg.event.title} - ${tag}`}>
+          <span className="event-dot" style={{ background: arg.event.borderColor }} />
+          {arg.timeText && <span className="event-line-time">{arg.timeText}</span>}
+          <IconEyeOff width={11} height={11} />
+          <span className="event-line-title">{arg.event.title}</span>
+        </span>
+      );
+    }
+    if (arg.view.type === 'listWeek') {
+      return (
+        <span className="hidden-list-title">
+          <IconEyeOff width={13} height={13} />
+          <span className="hidden-list-name">{arg.event.title}</span>
+          <span className="hidden-tag">{tag}</span>
+        </span>
+      );
+    }
+    return (
+      <div className="hidden-card" title={`${arg.event.title} - ${tag}`}>
+        <IconEyeOff width={11} height={11} />
+        <span className="hidden-card-title">{arg.event.title}</span>
+      </div>
+    );
+  }
+
   function eventContent(arg: EventContentArg) {
     const props = arg.event.extendedProps as EventKindProps;
     if (props.kind === 'custom') return customEventContent(arg, props.event);
+    if (props.kind === 'hidden') return hiddenEventContent(arg);
     const ev = props.dto;
     const cancelled = ev.status === 'cancelled' ? ' cancelled' : '';
 
@@ -207,12 +250,13 @@ export const CalendarView = forwardRef<
     return [started ? 'list-today-started' : 'list-today-upcoming'];
   }
 
-  // Cineca knows nothing of custom events: leaving them out of the key and the
-  // body keeps label or sharing toggles from refetching the timetable
+  // Cineca knows nothing of custom events or hidden lessons: leaving them out of
+  // the key and the body keeps label, sharing or hide toggles from refetching the timetable
   const cinecaSettings = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { customEvents: _customEvents, ...rest } = settings;
-    return rest;
+    const { customEvents: _customEvents, sources, ...rest } = settings;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    return { ...rest, sources: sources.map(({ hidden: _hidden, ...source }) => source) };
   }, [settings]);
 
   const eventsQuery = useQuery({
@@ -223,22 +267,32 @@ export const CalendarView = forwardRef<
     retryDelay: cinecaRetryDelay,
   });
 
+  // A background ghost takes no overlap column, so it never squeezes the lessons beside it.
+  // Month and list have no use for background events (list ignores them).
+  const ghostsAsBackground = mode === 'week' || mode === 'day';
+  const showGhosts = Boolean(onHiddenEventClick);
+
   const cinecaEvents: EventInput[] = useMemo(() => {
-    return (eventsQuery.data?.events ?? []).map((ev) => {
+    const hiddenBySource = new Map(settings.sources.map((s) => [s.sourceId, s.hidden]));
+    return (eventsQuery.data?.events ?? []).flatMap((ev): EventInput[] => {
       const color = colorForCourse(ev.courseKey, settings.colors);
       const title = i18n.language === 'en' && ev.courseNameEn ? ev.courseNameEn : ev.courseName;
-      return {
-        id: ev.id,
-        title,
-        start: ev.start,
-        end: ev.end,
-        backgroundColor: color,
-        borderColor: color,
-        textColor: '#ffffff',
-        extendedProps: { kind: 'cineca', dto: ev } satisfies EventKindProps,
-      } satisfies EventInput;
+      const base = { title, start: ev.start, end: ev.end, backgroundColor: color, borderColor: color, textColor: '#ffffff' };
+      if (!isEventHidden(hiddenBySource.get(ev.sourceId) ?? [], ev)) {
+        return [{ ...base, id: ev.id, extendedProps: { kind: 'cineca', dto: ev } satisfies EventKindProps }];
+      }
+      if (!showGhosts) return [];
+      return [
+        {
+          ...base,
+          id: `hidden:${ev.id}`,
+          classNames: ['hidden-ghost'],
+          ...(ghostsAsBackground ? { display: 'background' as const } : {}),
+          extendedProps: { kind: 'hidden', dto: ev } satisfies EventKindProps,
+        },
+      ];
     });
-  }, [eventsQuery.data, settings.colors, i18n.language]);
+  }, [eventsQuery.data, settings.colors, settings.sources, i18n.language, showGhosts, ghostsAsBackground]);
 
   const { events: customDefinitions, labels: customLabels } = customEvents;
   const showCustom = settings.customEvents.show;
@@ -364,7 +418,19 @@ export const CalendarView = forwardRef<
           eventClick={(arg) => {
             const props = arg.event.extendedProps as EventKindProps;
             if (props.kind === 'custom') onCustomEventClick(props.event, props.occurrence);
+            else if (props.kind === 'hidden') onHiddenEventClick?.(props.dto);
             else onEventClick(props.dto);
+          }}
+          eventDidMount={(arg) => {
+            if ((arg.event.extendedProps as EventKindProps).kind !== 'hidden') return;
+            // Native listeners: React delegates at its root, too late to beat FullCalendar's own.
+            // The click itself still reaches FullCalendar.
+            arg.el.addEventListener('mousedown', stopPointerStart);
+            arg.el.addEventListener('touchstart', stopPointerStart, { passive: true });
+          }}
+          eventWillUnmount={(arg) => {
+            arg.el.removeEventListener('mousedown', stopPointerStart);
+            arg.el.removeEventListener('touchstart', stopPointerStart);
           }}
           selectable={Boolean(onSlotSelect)}
           selectMirror

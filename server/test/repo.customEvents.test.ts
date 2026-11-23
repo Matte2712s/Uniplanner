@@ -361,9 +361,9 @@ describe('view settings parsing', () => {
 
     const view = getView(db, user.id, id)!;
     expect(view.settings.customEvents).toEqual({ show: true, hiddenLabels: [], shareInLink: false });
-    // Existing fields are preserved
+    // Existing fields are preserved; a source gains an empty hidden list
     expect(view.settings.calendarMode).toBe('month');
-    expect(view.settings.sources).toEqual([{ sourceId: 7, courseMode: 'exclude', courses: [] }]);
+    expect(view.settings.sources).toEqual([{ sourceId: 7, courseMode: 'exclude', courses: [], hidden: [] }]);
   });
 
   it('falls back to defaults for unreadable or invalid settings JSON', () => {

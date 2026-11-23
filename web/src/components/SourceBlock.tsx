@@ -91,7 +91,7 @@ export function SourceBlock({
 
   function setEnabled(next: boolean) {
     if (next) {
-      onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'exclude', courses: [] }] });
+      onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'exclude', courses: [], hidden: [] }] });
       setExpanded(true);
     } else {
       onChange({ ...settings, sources: settings.sources.filter((s) => s.sourceId !== source.id) });
@@ -104,7 +104,7 @@ export function SourceBlock({
 
   // Picking a course from a disabled source enables it showing only that course
   function enableWithCourse(key: string) {
-    onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'include', courses: [key] }] });
+    onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'include', courses: [key], hidden: [] }] });
   }
 
   function selectAll() {
@@ -192,6 +192,14 @@ export function SourceBlock({
               )}
               <button className="text-btn" style={{ marginLeft: 'auto' }} title={t('sidebar.refreshHint')} onClick={() => void refresh()} disabled={refreshing}>
                 {refreshing && <span className="spinner" />} {t('sidebar.refreshCourses')}
+              </button>
+            </div>
+          )}
+          {viewSource && viewSource.hidden.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span className="hint">{t('sidebar.hiddenCount', { count: viewSource.hidden.length })}</span>
+              <button className="text-btn" onClick={() => updateViewSource({ ...viewSource, hidden: [] })}>
+                {t('sidebar.showAllHidden')}
               </button>
             </div>
           )}

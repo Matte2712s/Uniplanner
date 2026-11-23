@@ -7,6 +7,8 @@ export const MAX_FOLDERS_PER_USER = 20;
 // A recurring event counts once, however many weekly slots it has
 export const MAX_CUSTOM_EVENTS_PER_USER = 200;
 export const MAX_EVENT_LABELS_PER_USER = 30;
+// Hidden-lesson rules held by one view source
+export const MAX_HIDDEN_RULES_PER_SOURCE = 100;
 // Upper bound on a sibling slot index; a folder holds subfolders and sources together
 export const MAX_SIBLING_INDEX = 1000;
 export const MAX_VIEW_NAME_LENGTH = 60;
@@ -26,11 +28,33 @@ export const ADMIN_STALE_SOURCE_DAYS = 30;
 export const courseKeySchema = z.string().min(1).max(400);
 export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
+// A rescheduled lesson gets a new event id and shows again; courseKey and start are only for pruning
+export const hiddenOnceRuleSchema = z.object({
+  kind: z.literal('once'),
+  eventId: z.string().min(1).max(200),
+  courseKey: courseKeySchema,
+  start: z.string().datetime({ offset: true }),
+});
+
+// One course partition's weekly slot, in Europe/Rome time; the end time is ignored
+export const hiddenWeeklyRuleSchema = z.object({
+  kind: z.literal('weekly'),
+  courseKey: courseKeySchema,
+  partition: z.string().max(300).nullable(),
+  // ISO weekday, 1 = Monday
+  weekday: z.number().int().min(1).max(7),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+});
+
+export const hiddenRuleSchema = z.discriminatedUnion('kind', [hiddenOnceRuleSchema, hiddenWeeklyRuleSchema]);
+
 export const viewSourceSchema = z.object({
   sourceId: z.number().int().positive(),
   // include: only listed courses; exclude: all but listed (new courses auto-included)
   courseMode: z.enum(['include', 'exclude']).default('exclude'),
   courses: z.array(courseKeySchema).max(500).default([]),
+  // Lessons hidden from this source in this view; dropped together with the source
+  hidden: z.array(hiddenRuleSchema).max(MAX_HIDDEN_RULES_PER_SOURCE).default([]),
 });
 
 export const calendarModeSchema = z.enum(['week', 'day', 'month', 'list']);
@@ -113,6 +137,9 @@ export const eventsQuerySchema = z.object({
 });
 
 export type ViewSource = z.infer<typeof viewSourceSchema>;
+export type HiddenRule = z.infer<typeof hiddenRuleSchema>;
+export type HiddenOnceRule = z.infer<typeof hiddenOnceRuleSchema>;
+export type HiddenWeeklyRule = z.infer<typeof hiddenWeeklyRuleSchema>;
 export type ViewSettings = z.infer<typeof viewSettingsSchema>;
 export type ViewCustomEvents = z.infer<typeof viewCustomEventsSchema>;
 export type CalendarMode = z.infer<typeof calendarModeSchema>;

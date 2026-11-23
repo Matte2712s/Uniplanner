@@ -160,7 +160,7 @@ describe('user folders', () => {
     });
     linkUserSource(db, user.id, source.id);
 
-    const settings = { ...defaultViewSettings(), sources: [{ sourceId: source.id, courseMode: 'include' as const, courses: ['a'] }] };
+    const settings = { ...defaultViewSettings(), sources: [{ sourceId: source.id, courseMode: 'include' as const, courses: ['a'], hidden: [] }] };
     const view = createView(db, user.id, 'My view', settings);
 
     unlinkUserSource(db, user.id, source.id);

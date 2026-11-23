@@ -58,7 +58,7 @@ export function AddSourceDialog({ onClose, onAdded }: { onClose: () => void; onA
         if (settings && !settings.sources.some((s) => s.sourceId === result.source.id)) {
           await planner.updateActiveViewSettings({
             ...settings,
-            sources: [...settings.sources, { sourceId: result.source.id, courseMode: 'exclude', courses: [] }],
+            sources: [...settings.sources, { sourceId: result.source.id, courseMode: 'exclude', courses: [], hidden: [] }],
           });
         }
         onAdded(result.source.id);

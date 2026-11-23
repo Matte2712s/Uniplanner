@@ -122,7 +122,7 @@ export function FolderSearch({
     const viewSource = settings.sources.find((s) => s.sourceId === source.id);
     if (!viewSource) {
       // Enable source showing only this course
-      onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'include', courses: [course.key] }] });
+      onChange({ ...settings, sources: [...settings.sources, { sourceId: source.id, courseMode: 'include', courses: [course.key], hidden: [] }] });
       return;
     }
     const next = toggleCourse(viewSource, course.key);

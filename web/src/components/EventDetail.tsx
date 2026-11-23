@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import type { CalendarEventDto } from '@planner/shared';
+import type { CalendarEventDto, HiddenRule } from '@planner/shared';
+import { weeklySlotOf } from '@planner/shared';
 import { Dialog } from './Dialog.tsx';
 import { EventMarkerBadges } from './EventMarkers.tsx';
 
@@ -11,10 +12,28 @@ function formatRange(start: string, end: string, locale: string): string {
   return `${day}, ${time(s)} - ${time(e)}`;
 }
 
-export function EventDetail({ event, onClose }: { event: CalendarEventDto; onClose: () => void }) {
+// ISO weekday (1 = Monday) as a name; 2024-01-01 is a Monday
+function weekdayName(weekday: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, weekday)));
+}
+
+export function EventDetail({
+  event,
+  hiding,
+  onClose,
+}: {
+  event: CalendarEventDto;
+  // Owner only: without it (share links) the dialog offers no way to hide the lesson
+  hiding?: { rules: HiddenRule[]; onHide: (kind: 'once' | 'weekly') => void; onUnhide: () => void };
+  onClose: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const name = i18n.language === 'en' && event.courseNameEn ? event.courseNameEn : event.courseName;
   const notes = i18n.language === 'en' && event.notesEn ? event.notesEn : event.notes;
+  const isHidden = hiding !== undefined && hiding.rules.length > 0;
+  // A matching weekly rule shares the lesson's own slot, so the slot of the lesson says the same
+  const slot = weeklySlotOf(event.start);
+  const slotText = { weekday: weekdayName(slot.weekday, i18n.language), time: slot.time };
 
   return (
     <Dialog onClose={onClose}>
@@ -56,7 +75,28 @@ export function EventDetail({ event, onClose }: { event: CalendarEventDto; onClo
         </p>
       )}
 
+      {isHidden && (
+        <p className="hint">
+          {hiding.rules.some((rule) => rule.kind === 'weekly') ? t('event.hiddenWeeklyNote', slotText) : t('event.hiddenNote')}
+        </p>
+      )}
+
       <div className="dialog-actions">
+        {hiding && !isHidden && (
+          <>
+            <button className="btn" onClick={() => hiding.onHide('once')}>
+              {t('event.hide')}
+            </button>
+            <button className="btn" onClick={() => hiding.onHide('weekly')}>
+              {t('event.hideWeekly', slotText)}
+            </button>
+          </>
+        )}
+        {isHidden && (
+          <button className="btn btn-primary" onClick={hiding.onUnhide}>
+            {t('event.unhide')}
+          </button>
+        )}
         <button className="btn" onClick={onClose}>
           {t('event.close')}
         </button>

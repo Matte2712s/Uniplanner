@@ -192,3 +192,13 @@ export function IconMapPin(props: SVGProps<SVGSVGElement>) {
     </Svg>
   );
 }
+
+export function IconEyeOff(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" />
+      <circle cx="8" cy="8" r="1.8" />
+      <path d="M3 13L13 3" />
+    </Svg>
+  );
+}

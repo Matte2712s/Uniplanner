@@ -23,6 +23,7 @@ import {
   siblingOrderAfterMove,
   viewCustomEventsSchema,
   viewSettingsSchema,
+  viewSourceSchema,
 } from '@planner/shared';
 
 const KEY = 'planner.guest.v1';
@@ -71,13 +72,21 @@ function normalizeSettings(raw: unknown): ViewSettings {
   if (parsed.success) return parsed.data;
   if (!isRecord(raw)) return defaultViewSettings();
   // Keep the guest's sources and courses (never validated before) rather than
-  // wiping them; only the custom-events field is rebuilt
+  // wiping them; only the custom-events field and each source's hidden rules are rebuilt
   const customEvents = viewCustomEventsSchema.safeParse(raw.customEvents ?? {});
   return {
     ...defaultViewSettings(),
     ...raw,
+    ...(Array.isArray(raw.sources) ? { sources: raw.sources.map(normalizeHiddenRules) } : {}),
     customEvents: customEvents.success ? customEvents.data : defaultViewSettings().customEvents,
   } as ViewSettings;
+}
+
+/** A raw source keeps its hidden rules only if all of them are valid and within the cap. */
+function normalizeHiddenRules(source: unknown): unknown {
+  if (!isRecord(source)) return source;
+  const hidden = viewSourceSchema.shape.hidden.safeParse(source.hidden ?? []);
+  return { ...source, hidden: hidden.success ? hidden.data : [] };
 }
 
 /** Keeps only valid labels with unique ids, up to the per-user cap. */
